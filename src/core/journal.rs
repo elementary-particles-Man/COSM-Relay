@@ -7,6 +7,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+extern "C" {
+    #[link_name = "flock"]
+    fn libc_flock(fd: std::os::raw::c_int, operation: std::os::raw::c_int) -> std::os::raw::c_int;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedJournalEntry {
     pub schema_version: u16,
@@ -123,7 +129,7 @@ impl FileJournal {
         fs::create_dir_all(&events_dir)?;
         fs::create_dir_all(&tmp_dir)?;
 
-        // Acquire lock
+        // Acquire exclusive lock using flock to prevent multi-process concurrent access
         let lock_path = lane_dir.join("lane.lock");
         let lock_file = OpenOptions::new()
             .read(true)
@@ -131,6 +137,22 @@ impl FileJournal {
             .create(true)
             .truncate(false)
             .open(&lock_path)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = lock_file.as_raw_fd();
+            let ret = unsafe { libc_flock(fd, 2 | 4) }; // LOCK_EX | LOCK_NB
+            if ret != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    format!(
+                        "Lane {} is currently locked by another process",
+                        lane_id.as_str()
+                    ),
+                ));
+            }
+        }
 
         // Simple single-process advisory lock: file exists check or open lock
         let mut journal = Self {

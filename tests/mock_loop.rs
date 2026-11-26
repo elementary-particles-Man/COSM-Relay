@@ -148,12 +148,16 @@ fn test_mock_loop_three_full_rounds() {
         assert_eq!(state.active_task, None);
     }
 
+    // Drop runtime to release flock before opening second journal
+    let current_phase = runtime.get_state(&lane_id).unwrap().phase;
+    let current_epoch = runtime.get_state(&lane_id).unwrap().binding_epoch;
+    drop(runtime);
+
     // Verify journal and replay
     let journal = FileJournal::open(&temp_dir, lane_id.clone(), epoch).unwrap();
     let replayed = journal.replay_state().unwrap();
-    let current_state = runtime.get_state(&lane_id).unwrap();
-    assert_eq!(replayed.phase, current_state.phase);
-    assert_eq!(replayed.binding_epoch, current_state.binding_epoch);
+    assert_eq!(replayed.phase, current_phase);
+    assert_eq!(replayed.binding_epoch, current_epoch);
     assert_eq!(replayed.task_history.len(), 3);
 
     let _ = fs::remove_dir_all(&temp_dir);
@@ -275,6 +279,9 @@ fn test_mock_loop_decision_required_flow() {
         .unwrap();
     assert_eq!(state.phase, Phase::Accepted);
 
+    // Drop runtime to release flock
+    drop(runtime);
+
     // Verify journal replay
     let journal = FileJournal::open(&temp_dir, lane_id.clone(), epoch).unwrap();
     let replayed = journal.replay_state().unwrap();
@@ -346,6 +353,9 @@ fn test_mock_loop_fault_injection_and_reconciliation() {
         })
         .unwrap();
     assert_eq!(state.phase, Phase::Accepted);
+
+    // Drop runtime to release flock
+    drop(runtime);
 
     // Verify replay state
     let journal = FileJournal::open(&temp_dir, lane_id.clone(), epoch).unwrap();

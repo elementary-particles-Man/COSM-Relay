@@ -94,7 +94,8 @@ struct JsonRpcNotification<T> {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct JsonRpcResponse<T> {
-    jsonrpc: String,
+    #[serde(default)]
+    jsonrpc: Option<String>,
     id: Option<u64>,
     result: Option<T>,
     error: Option<JsonRpcErrorObj>,
@@ -256,9 +257,11 @@ impl CodexAppServerClient {
             }),
         )?;
         let thread_id = res
-            .get("threadId")
+            .get("thread")
+            .and_then(|t| t.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| CodexAdapterError::MissingField("threadId".to_string()))?;
+            .or_else(|| res.get("threadId").and_then(|v| v.as_str()))
+            .ok_or_else(|| CodexAdapterError::MissingField("thread.id / threadId".to_string()))?;
         Ok(thread_id.to_string())
     }
 
@@ -300,9 +303,11 @@ impl CodexAppServerClient {
             }),
         )?;
         let turn_id = res
-            .get("turnId")
+            .get("turn")
+            .and_then(|t| t.get("id"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| CodexAdapterError::MissingField("turnId".to_string()))?;
+            .or_else(|| res.get("turnId").and_then(|v| v.as_str()))
+            .ok_or_else(|| CodexAdapterError::MissingField("turn.id / turnId".to_string()))?;
         Ok(turn_id.to_string())
     }
 

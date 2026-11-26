@@ -1,9 +1,14 @@
-use super::core::*;
+use crate::adapters::codex::CodexAppServerClient;
+use crate::core::envelope::Envelope;
+use crate::core::reducer::{Event, ReduceError, SideEffect};
+use crate::core::state::LaneState;
+use crate::core::types::{LaneId, MessageId};
+use crate::FileJournal;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LaneConfig {
     pub id: LaneId,
     pub repo_root: PathBuf,
@@ -68,7 +73,7 @@ impl RelayRuntime {
 
         let current_state = self.states.get(&lane_id).ok_or(ReduceError::LaneMismatch)?;
 
-        let (new_state, effects) = reduce(current_state, event)?;
+        let (new_state, effects) = crate::core::reducer::reduce(current_state, event)?;
 
         // Persist events before executing external effects
         if let Some(journal) = self.journals.get_mut(&lane_id) {
@@ -86,5 +91,76 @@ impl RelayRuntime {
 
         self.states.insert(lane_id, new_state.clone());
         Ok((new_state, effects))
+    }
+
+    /// Process active dispatch side effect by invoking codex client turn
+    pub fn execute_dispatch_to_worker(
+        &mut self,
+        lane_id: &LaneId,
+        codex_client: &mut CodexAppServerClient,
+        thread_id: &str,
+    ) -> Result<String, String> {
+        let state = self.get_state(lane_id).ok_or("Lane not found")?.clone();
+        let active_task = state.active_task.ok_or("No active task on lane")?;
+        let task_env = state
+            .active_task_envelope
+            .ok_or("No active task envelope on lane")?;
+
+        // 1. Record dispatch intent
+        self.handle_event(Event::DispatchIntentRecorded {
+            lane_id: lane_id.clone(),
+            binding_epoch: state.binding_epoch,
+            run_id: state.run_id.clone().ok_or("No active run")?,
+            task_id: active_task.clone(),
+        })
+        .map_err(|e| format!("{:?}", e))?;
+
+        // 2. Start turn on Codex
+        let turn_id_str = codex_client
+            .turn_start(thread_id, &task_env.payload_utf8)
+            .map_err(|e| format!("Codex turn_start error: {:?}", e))?;
+
+        let turn_id = crate::core::types::TurnId::new(&turn_id_str)
+            .map_err(|e| format!("Invalid turn ID from worker: {:?}", e))?;
+
+        // 3. Bind worker turn
+        self.handle_event(Event::WorkerTurnBound {
+            lane_id: lane_id.clone(),
+            binding_epoch: state.binding_epoch,
+            run_id: state.run_id.clone().ok_or("No active run")?,
+            task_id: active_task.clone(),
+            turn_id: turn_id.clone(),
+        })
+        .map_err(|e| format!("{:?}", e))?;
+
+        // 4. Wait for turn completion
+        let result = codex_client
+            .wait_turn_completion(&turn_id_str)
+            .map_err(|e| format!("Codex wait_turn_completion error: {:?}", e))?;
+
+        // 5. Construct report envelope
+        let report_msg_id = format!("rep-{}", turn_id_str);
+        let rep_env = Envelope::new(
+            lane_id.clone(),
+            state.binding_epoch,
+            state.run_id.clone().ok_or("No active run")?,
+            MessageId::new(&report_msg_id).map_err(|e| format!("{:?}", e))?,
+            active_task,
+            Some(task_env.message_id.clone()),
+            crate::core::envelope::MessageKind::Report,
+            result.report_text.as_str(),
+        );
+
+        // 6. Complete worker turn
+        self.handle_event(Event::WorkerTurnCompleted {
+            lane_id: lane_id.clone(),
+            binding_epoch: state.binding_epoch,
+            run_id: state.run_id.clone().ok_or("No active run")?,
+            turn_id,
+            report_envelope: rep_env,
+        })
+        .map_err(|e| format!("{:?}", e))?;
+
+        Ok(result.report_text)
     }
 }

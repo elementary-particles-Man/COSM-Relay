@@ -1,0 +1,95 @@
+{
+  "work_id": "COSM-RELAY-FASTPATH-003",
+  "observed_repo_head": "120c052aceac8a1db7cead0433e20209c38615e6",
+  "local_diff": "src/adapters/codex.rs, src/adapters/mod.rs, src/adapters/mcp_server.rs, src/core/journal.rs, src/main.rs, src/runtime.rs, tests/codex_live_turn.rs, tests/mock_loop.rs, tests/supervisor_mcp_server.rs",
+  "changed_files": [
+    "src/adapters/codex.rs",
+    "src/adapters/mod.rs",
+    "src/adapters/mcp_server.rs",
+    "src/core/journal.rs",
+    "src/main.rs",
+    "src/runtime.rs",
+    "tests/codex_live_turn.rs",
+    "tests/mock_loop.rs",
+    "tests/supervisor_mcp_server.rs",
+    "RESULT_FASTPATH_003.json",
+    "REPORT_FASTPATH_003.md",
+    "execution_evidence_fastpath_003.jsonl"
+  ],
+  "F01_F05_status": {
+    "F01_durable_journal": "PASS (libc flock OS-level exclusivity + atomic temp-fsync-rename-replay)",
+    "F02_runtime_state_machine": "PASS (Full loop driver `execute_dispatch_to_worker` with pre-side-effect persistence)",
+    "F03_mock_auto_loop": "PASS (3-round consecutive loop, decision handling, fault injection & reconcile)",
+    "F04_codex_app_server_compatibility": "PASS (Live turn/start -> inProgress -> completed -> final report extraction verified)",
+    "F05_supervisor_gpt_adapter": "PASS (SupervisorAdapter + SupervisorMcpServer JSON-RPC 2.0 stdio server verified)"
+  },
+  "P0_UT_FT_IT_individual_status": {
+    "P0_001_P0_003": "PASS",
+    "UT_01_types_envelope": "PASS",
+    "UT_02_reducer_determinism": "PASS",
+    "UT_03_envelope_tamper_evidence": "PASS",
+    "UT_04_json_roundtrip_hash_preservation": "PASS",
+    "UT_05_journal_persistence_and_replay": "PASS",
+    "UT_06_os_file_lock_exclusivity": "PASS",
+    "UT_07_supervisor_mcp_server_protocol": "PASS",
+    "FT_01_fault_dispatch_uncertain": "PASS",
+    "FT_02_fault_reconcile_epoch_increment": "PASS",
+    "FT_03_fault_worker_failed_report": "PASS",
+    "FT_04_fault_worker_outcome_uncertain": "PASS",
+    "FT_05_fault_pause_and_resume_semantics": "PASS",
+    "FT_06_fault_duplicate_task_rejection": "PASS",
+    "FT_07_fault_task_conflict_rejection": "PASS",
+    "FT_08_fault_unauthorized_lane_rejection": "PASS",
+    "IT_01_mock_loop_3_consecutive_rounds": "PASS",
+    "IT_02_decision_required_to_wait_decision_flow": "PASS",
+    "IT_03_supervisor_adapter_contract_and_security": "PASS",
+    "IT_04_live_codex_turn_execution_and_report": "PASS"
+  },
+  "AC_01_AC_08_individual_status": {
+    "AC-01": "NOT_RUN / BLOCKED (Existing ChatGPT Web chat cannot call local tools without human plugin/tunnel action; Mock loop verified 3 rounds with 0 manual interventions)",
+    "AC-02": "PASS (Normal & DecisionRequired reports preserve exact raw UTF-8 and SHA-256)",
+    "AC-03": "PASS (DecisionRequired transitions to WaitDecision; prevents unapproved execution)",
+    "AC-04": "PASS (OS flock prevents duplicate lane runners; crash replay verified)",
+    "AC-05": "PASS (Independent state machines per lane tested; no cross-lane data contamination)",
+    "AC-06": "PASS (CLI status/pause/resume/stop and Doctor inspection without state rollback)",
+    "AC-07": "NOT_RUN (Reserved for live pipeline acceptance after supervisor route connection)",
+    "AC-08": "BLOCKED (Long-running ChatGPT session timeout and reconnection pending human route selection)"
+  },
+  "mock_vs_live": {
+    "mock_supervisor_loop": "PASS (3 consecutive automated rounds without manual intervention)",
+    "mock_codex_loop": "PASS (Full transition and replay regression)",
+    "live_codex_app_server": "PASS (Live turn executed: turn_id 01a21889-96a8-7dc3-bc0e-02254feb5075, completed, report extracted)",
+    "live_chatgpt_supervisor": "BLOCKED (ChatGPT Plus/Free web interface does not permit direct localhost custom MCP server connection without Business/Enterprise tier or ChatGPT Sites Plugin publication)"
+  },
+  "R_01_R_06_status": {
+    "R-01": "BLOCKED (OpenAI official rules restrict raw custom MCP to Business/Enterprise/Edu; Plus requires ChatGPT Sites Plugin or public tunnel endpoint with human setup)",
+    "R-02": "NOT_RUN (CLI runner provided; dual-operation with existing active TUI session avoided per safety specification)",
+    "R-03": "PASS (WaitDecision state locks lane on DECISION_REQUIRED until continuation Task arrives)",
+    "R-04": "PASS (Preserves exact raw Task JSON & SHA-256 payload while using typed outer envelopes)",
+    "R-05": "PASS (CLI status/doctor/pause/resume/stop provided; Operator TUI dashboard reserved)",
+    "R-06": "BLOCKED (ChatGPT Web external authentication and subscription boundaries require human route choice)"
+  },
+  "human_intervention_counts": {
+    "regular_turn_relays": 0,
+    "copy_paste_relays": 0,
+    "task_launches": 0,
+    "approval_requests_buffered": 0,
+    "manual_reconcile_calls": 0
+  },
+  "build_test_evidence": {
+    "cargo_check_exit": 0,
+    "cargo_clippy_exit": 0,
+    "cargo_test_exit": 0,
+    "total_tests": 19,
+    "passed_tests": 19,
+    "failed_tests": 0,
+    "release_build_exit": 0,
+    "binary_size_bytes": 661448,
+    "binary_size_str": "646 KiB"
+  },
+  "remaining_blockers": [
+    "R-01/R-06: ChatGPT Plus web user interface cannot bind to a local MCP stdio or localhost HTTP endpoint directly. Official options require either: (A) Creating and publishing a ChatGPT Site Plugin, or (B) A secure TLS tunnel URL (cloudflared/ngrok) configured in a workspace supporting custom actions/plugins."
+  ],
+  "next_required_human_action": "Decide between Option A (Create ChatGPT Site attaching Relay tools) or Option B (Host a secure public TLS tunnel URL to Relay MCP server), and configure the endpoint in ChatGPT.",
+  "git_status": "Clean (committed and pushed)"
+}
