@@ -5,6 +5,31 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TurnExecutionStatus {
+    Completed,
+    Interrupted,
+    Failed,
+    InProgress,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnResult {
+    pub turn_id: String,
+    pub status: TurnExecutionStatus,
+    pub report_text: String,
+    pub raw_response: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerRequestMessage {
+    pub id: u64,
+    pub method: String,
+    pub params: Value,
+}
+
 #[derive(Debug)]
 pub enum CodexAdapterError {
     Io(std::io::Error),
@@ -12,6 +37,8 @@ pub enum CodexAdapterError {
     Rpc { code: i64, message: String },
     ProcessTerminated,
     MissingField(String),
+    TurnFailed { turn_id: String, message: String },
+    TurnInterrupted { turn_id: String },
 }
 
 impl fmt::Display for CodexAdapterError {
@@ -25,6 +52,12 @@ impl fmt::Display for CodexAdapterError {
             CodexAdapterError::ProcessTerminated => write!(f, "Process terminated prematurely"),
             CodexAdapterError::MissingField(field) => {
                 write!(f, "Missing expected field in response: {}", field)
+            }
+            CodexAdapterError::TurnFailed { turn_id, message } => {
+                write!(f, "Turn {} failed: {}", turn_id, message)
+            }
+            CodexAdapterError::TurnInterrupted { turn_id } => {
+                write!(f, "Turn {} was interrupted", turn_id)
             }
         }
     }
@@ -79,6 +112,7 @@ pub struct CodexAppServerClient {
     stdin: ChildStdin,
     reader: BufReader<ChildStdout>,
     next_id: AtomicU64,
+    buffered_server_requests: Vec<ServerRequestMessage>,
 }
 
 impl CodexAppServerClient {
@@ -104,11 +138,16 @@ impl CodexAppServerClient {
             stdin,
             reader,
             next_id: AtomicU64::new(1),
+            buffered_server_requests: Vec::new(),
         })
     }
 
     fn next_request_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub fn pop_server_request(&mut self) -> Option<ServerRequestMessage> {
+        self.buffered_server_requests.pop()
     }
 
     pub fn send_request<P: Serialize, R: for<'de> Deserialize<'de>>(
@@ -145,6 +184,19 @@ impl CodexAppServerClient {
                 Ok(v) => v,
                 Err(_) => continue, // non-json stdout or log lines ignored
             };
+
+            // Check if server issued a request/approval requirement
+            if let (Some(id), Some(meth)) = (
+                val.get("id").and_then(|v| v.as_u64()),
+                val.get("method").and_then(|v| v.as_str()),
+            ) {
+                self.buffered_server_requests.push(ServerRequestMessage {
+                    id,
+                    method: meth.to_string(),
+                    params: val.get("params").cloned().unwrap_or(Value::Null),
+                });
+                continue;
+            }
 
             if let Some(id) = val.get("id").and_then(|v| v.as_u64()) {
                 if id == req_id {
@@ -210,14 +262,26 @@ impl CodexAppServerClient {
         Ok(thread_id.to_string())
     }
 
-    pub fn thread_resume(&mut self, thread_id: &str) -> Result<(), CodexAdapterError> {
-        let _: Value = self.send_request(
+    pub fn thread_resume(&mut self, thread_id: &str) -> Result<Value, CodexAdapterError> {
+        let res: Value = self.send_request(
             "thread/resume",
             serde_json::json!({
-                "threadId": thread_id
+                "threadId": thread_id,
+                "excludeTurns": true
             }),
         )?;
-        Ok(())
+        Ok(res)
+    }
+
+    pub fn thread_read(&mut self, thread_id: &str) -> Result<Value, CodexAdapterError> {
+        let res: Value = self.send_request(
+            "thread/read",
+            serde_json::json!({
+                "threadId": thread_id,
+                "includeTurns": false
+            }),
+        )?;
+        Ok(res)
     }
 
     pub fn turn_start(
@@ -258,11 +322,12 @@ impl CodexAppServerClient {
     }
 
     /// Reads events until `turn/completed` for target `turn_id` is encountered.
-    /// Collects final assistant message text from turn events.
+    /// Distinguishes between completed, failed, and interrupted status.
+    /// Extracts the final assistant message text and returns a structured `TurnResult`.
     pub fn wait_turn_completion(
         &mut self,
         target_turn_id: &str,
-    ) -> Result<String, CodexAdapterError> {
+    ) -> Result<TurnResult, CodexAdapterError> {
         let mut collected_text = String::new();
         let mut resp_line = String::new();
 
@@ -282,11 +347,27 @@ impl CodexAppServerClient {
                 Err(_) => continue,
             };
 
+            // Capture server requests (e.g. approval) while waiting for turn
+            if let (Some(id), Some(meth)) = (
+                val.get("id").and_then(|v| v.as_u64()),
+                val.get("method").and_then(|v| v.as_str()),
+            ) {
+                self.buffered_server_requests.push(ServerRequestMessage {
+                    id,
+                    method: meth.to_string(),
+                    params: val.get("params").cloned().unwrap_or(Value::Null),
+                });
+                continue;
+            }
+
             if let Some(method) = val.get("method").and_then(|v| v.as_str()) {
                 if method == "item/added" || method == "item/completed" {
                     if let Some(params) = val.get("params") {
                         if let Some(item) = params.get("item") {
-                            if item.get("type").and_then(|v| v.as_str()) == Some("agent_message") {
+                            let item_type = item.get("type").and_then(|v| v.as_str());
+                            if item_type == Some("agent_message")
+                                || item_type == Some("agentMessage")
+                            {
                                 if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
                                     if !text.is_empty() {
                                         collected_text = text.to_string();
@@ -297,9 +378,52 @@ impl CodexAppServerClient {
                     }
                 } else if method == "turn/completed" {
                     if let Some(params) = val.get("params") {
-                        if let Some(turn_id) = params.get("turnId").and_then(|v| v.as_str()) {
-                            if turn_id == target_turn_id {
-                                return Ok(collected_text);
+                        let turn_obj = params.get("turn");
+                        let turn_id = turn_obj
+                            .and_then(|t| t.get("id"))
+                            .and_then(|v| v.as_str())
+                            .or_else(|| params.get("turnId").and_then(|v| v.as_str()));
+
+                        if turn_id == Some(target_turn_id) {
+                            let status_str = turn_obj
+                                .and_then(|t| t.get("status"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("completed");
+
+                            let status = match status_str {
+                                "completed" => TurnExecutionStatus::Completed,
+                                "interrupted" => TurnExecutionStatus::Interrupted,
+                                "failed" => TurnExecutionStatus::Failed,
+                                "inProgress" => TurnExecutionStatus::InProgress,
+                                other => TurnExecutionStatus::Unknown(other.to_string()),
+                            };
+
+                            // Check if turn ended in failure or interrupt
+                            match status {
+                                TurnExecutionStatus::Failed => {
+                                    let err_msg = turn_obj
+                                        .and_then(|t| t.get("error"))
+                                        .and_then(|e| e.get("message"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Unknown error");
+                                    return Err(CodexAdapterError::TurnFailed {
+                                        turn_id: target_turn_id.to_string(),
+                                        message: err_msg.to_string(),
+                                    });
+                                }
+                                TurnExecutionStatus::Interrupted => {
+                                    return Err(CodexAdapterError::TurnInterrupted {
+                                        turn_id: target_turn_id.to_string(),
+                                    });
+                                }
+                                _ => {
+                                    return Ok(TurnResult {
+                                        turn_id: target_turn_id.to_string(),
+                                        status,
+                                        report_text: collected_text,
+                                        raw_response: val,
+                                    });
+                                }
                             }
                         }
                     }
