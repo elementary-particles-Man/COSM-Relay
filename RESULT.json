@@ -1,0 +1,50 @@
+{
+  "work_id": "TUFF-RELAY-FASTPATH-001",
+  "status": "SUCCESS",
+  "timestamp": "2026-11-26T22:48:45+09:00",
+  "repository": {
+    "name": "elementary-particles-Man/TUFF-Relay",
+    "branch": "main",
+    "baseline_commit": "f0be7cca19511af53427f0aedb9cf15f03534aa6"
+  },
+  "deliverables": {
+    "durable_journal": "PASS",
+    "state_replay": "PASS",
+    "relay_runtime": "PASS",
+    "operator_cli": "PASS",
+    "codex_stdio_adapter": "PASS",
+    "mock_loop_3_rounds": "PASS",
+    "decision_required_handling": "PASS",
+    "fault_reconciliation": "PASS",
+    "regression_tests": "PASS"
+  },
+  "verification_matrix": {
+    "basic_design_ac": {
+      "AC-01": "PASS",
+      "AC-02": "PASS",
+      "AC-03": "PASS",
+      "AC-04": "PASS",
+      "AC-05": "PASS",
+      "AC-06": "PASS",
+      "AC-07": "PASS",
+      "AC-08": "PASS"
+    },
+    "detail_design_tests": {
+      "UT-01_UT-07": "PASS",
+      "FT-01_FT-08": "PASS",
+      "IT-01_IT-04": "PASS"
+    }
+  },
+  "unresolved_items_status": {
+    "R-01": "BLOCKED_ON_HUMAN_SETUP (No local secure MCP tunnel / human auth configured on host)",
+    "R-02": "SPEC_RESERVED (Binding epoch increments on manual reconcile)",
+    "R-03": "RESOLVED_IN_CORE (Transitions to WaitDecision on DECISION_REQUIRED ACK; unlocks via continuation Task)",
+    "R-04": "SPEC_RESERVED (Single worker lane; multi-worker isolation reserved)",
+    "R-05": "SPEC_RESERVED (Durable atomic fsync files; sqlite backend reserved)",
+    "R-06": "SPEC_RESERVED (CLI operator interface provided; TUI dashboard reserved)"
+  },
+  "release_build": {
+    "status": "PASS",
+    "flags": ["lto=fat", "codegen-units=1", "panic=abort", "strip=true"]
+  }
+}

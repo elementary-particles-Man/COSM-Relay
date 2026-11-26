@@ -40,7 +40,7 @@ fn test_envelope_creation_and_integrity() {
     assert!(env.verify_integrity().is_ok());
 
     let mut corrupted = env.clone();
-    corrupted.payload_utf8 = r#"{"task": "改ざんされたペイロード"}"#.to_string();
+    corrupted.payload_utf8 = r#"{"task": "改ざんされたペイロード"}"#.into();
     assert!(corrupted.verify_integrity().is_err());
 }
 
@@ -63,7 +63,7 @@ fn test_json_roundtrip_sha256_preservation() {
     let deserialized: Envelope = serde_json::from_str(&serialized).unwrap();
 
     assert_eq!(deserialized.payload_sha256, original_hash);
-    assert_eq!(deserialized.payload_utf8, payload);
+    assert_eq!(&*deserialized.payload_utf8, payload);
     assert!(deserialized.verify_integrity().is_ok());
 }
 
@@ -131,7 +131,7 @@ fn test_normal_cycle_transitions_and_persistence_contract() {
     } = &effects[1]
     {
         assert_eq!(task_id.as_str(), "task-01");
-        assert_eq!(payload_utf8, task_payload);
+        assert_eq!(&**payload_utf8, task_payload);
         assert_eq!(payload_sha256, &Envelope::compute_sha256(task_payload));
     } else {
         panic!("Expected DispatchWorkerTask effect");

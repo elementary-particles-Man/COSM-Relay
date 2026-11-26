@@ -1,13 +1,14 @@
 use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize, Serializer};
+use std::sync::Arc;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LaneId(String);
+pub struct LaneId(Arc<str>);
 
 impl LaneId {
-    pub fn new(s: impl Into<String>) -> Result<Self, &'static str> {
-        let s = s.into();
+    pub fn new(s: impl AsRef<str>) -> Result<Self, &'static str> {
+        let s = s.as_ref();
         if s.is_empty() || s.len() > 64 {
             return Err("LaneId must be between 1 and 64 characters");
         }
@@ -17,9 +18,10 @@ impl LaneId {
         {
             return Err("LaneId must contain only ASCII lowercase, digits, or hyphen");
         }
-        Ok(Self(s))
+        Ok(Self(Arc::from(s)))
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -51,17 +53,18 @@ impl<'de> Deserialize<'de> for LaneId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RunId(String);
+pub struct RunId(Arc<str>);
 
 impl RunId {
-    pub fn new(s: impl Into<String>) -> Result<Self, &'static str> {
-        let s = s.into();
+    pub fn new(s: impl AsRef<str>) -> Result<Self, &'static str> {
+        let s = s.as_ref();
         if s.is_empty() || s.len() > 128 {
             return Err("RunId must be between 1 and 128 characters");
         }
-        Ok(Self(s))
+        Ok(Self(Arc::from(s)))
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -93,17 +96,18 @@ impl<'de> Deserialize<'de> for RunId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MessageId(String);
+pub struct MessageId(Arc<str>);
 
 impl MessageId {
-    pub fn new(s: impl Into<String>) -> Result<Self, &'static str> {
-        let s = s.into();
+    pub fn new(s: impl AsRef<str>) -> Result<Self, &'static str> {
+        let s = s.as_ref();
         if s.is_empty() || s.len() > 128 {
             return Err("MessageId must be between 1 and 128 characters");
         }
-        Ok(Self(s))
+        Ok(Self(Arc::from(s)))
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -135,17 +139,18 @@ impl<'de> Deserialize<'de> for MessageId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TaskId(String);
+pub struct TaskId(Arc<str>);
 
 impl TaskId {
-    pub fn new(s: impl Into<String>) -> Result<Self, &'static str> {
-        let s = s.into();
+    pub fn new(s: impl AsRef<str>) -> Result<Self, &'static str> {
+        let s = s.as_ref();
         if s.is_empty() || s.len() > 128 {
             return Err("TaskId must be between 1 and 128 characters");
         }
-        Ok(Self(s))
+        Ok(Self(Arc::from(s)))
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -177,17 +182,18 @@ impl<'de> Deserialize<'de> for TaskId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TurnId(String);
+pub struct TurnId(Arc<str>);
 
 impl TurnId {
-    pub fn new(s: impl Into<String>) -> Result<Self, &'static str> {
-        let s = s.into();
+    pub fn new(s: impl AsRef<str>) -> Result<Self, &'static str> {
+        let s = s.as_ref();
         if s.is_empty() || s.len() > 128 {
             return Err("TurnId must be between 1 and 128 characters");
         }
-        Ok(Self(s))
+        Ok(Self(Arc::from(s)))
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> &str {
         &self.0
     }

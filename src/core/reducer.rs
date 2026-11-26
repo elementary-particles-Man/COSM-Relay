@@ -120,7 +120,7 @@ pub enum SideEffect {
     PersistEvent(DurableJournalEvent),
     DispatchWorkerTask {
         task_id: TaskId,
-        payload_utf8: String,
+        payload_utf8: std::sync::Arc<str>,
         payload_sha256: [u8; 32],
     },
     NotifySupervisorReport {

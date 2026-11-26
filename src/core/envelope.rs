@@ -1,6 +1,7 @@
 use super::types::{LaneId, MessageId, RunId, TaskId, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,11 +22,12 @@ pub struct Envelope {
     pub task_id: TaskId,
     pub in_reply_to: Option<MessageId>,
     pub kind: MessageKind,
-    pub payload_utf8: String,
+    pub payload_utf8: Arc<str>,
     pub payload_sha256: [u8; 32],
 }
 
 impl Envelope {
+    #[inline(always)]
     pub fn compute_sha256(payload: &str) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(payload.as_bytes());
@@ -41,8 +43,9 @@ impl Envelope {
         task_id: TaskId,
         in_reply_to: Option<MessageId>,
         kind: MessageKind,
-        payload_utf8: String,
+        payload_utf8: impl Into<Arc<str>>,
     ) -> Self {
+        let payload_utf8: Arc<str> = payload_utf8.into();
         let payload_sha256 = Self::compute_sha256(&payload_utf8);
         Self {
             protocol_version: PROTOCOL_VERSION,
@@ -58,6 +61,7 @@ impl Envelope {
         }
     }
 
+    #[inline(always)]
     pub fn verify_integrity(&self) -> Result<(), &'static str> {
         if self.protocol_version != PROTOCOL_VERSION {
             return Err("Unsupported protocol version");
