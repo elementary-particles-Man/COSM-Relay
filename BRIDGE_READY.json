@@ -1,0 +1,60 @@
+{
+  "work_id": "COSM-RELAY-FASTPATH-007",
+  "timestamp_utc": "2026-11-26T18:48:30Z",
+  "lane_configuration": {
+    "lane_id": "poc-fastpath-007",
+    "repo_root": "/mnt/thpdoc/Develop/TUFF-Relay",
+    "dedicated_state_dir": "/tmp/cosm-poc-fastpath-007",
+    "configured_bind_addr": "127.0.0.1:18888",
+    "ipc_socket_path": "/tmp/cosm-poc-fastpath-007/ipc/poc-fastpath-007.sock"
+  },
+  "process_state": {
+    "is_running": false,
+    "last_verified_release_e2e_pid": 1012874,
+    "current_running_pid": null,
+    "reason": "Previous verification completed with clean graceful exit (code 0). New daemon is ready for operator launch."
+  },
+  "worker_binding_verification": {
+    "target_test_thread_id": "01a20de6-d7d3-71e2-af86-fff5791dd860",
+    "codex_binary": "/home/flux/.local/bin/codex",
+    "idle_status_verified": true,
+    "thread_resume_synchronous_check": "ENFORCED_IN_SOURCE"
+  },
+  "host_network_and_tunnel_status": {
+    "active_inbound_tunnel_found": false,
+    "binaries_checked": [
+      "cloudflared",
+      "tailscale",
+      "caddy",
+      "nginx",
+      "frp",
+      "ngrok",
+      "zrok"
+    ],
+    "binaries_present": [],
+    "existing_tls_route_approved": false,
+    "recommended_minimal_route": {
+      "candidate": "cloudflared tunnel (or operator-managed reverse proxy)",
+      "minimal_approval_required": "Operator approval to install and run cloudflared or configure reverse proxy to route inbound HTTPS to 127.0.0.1:18888."
+    }
+  },
+  "authentication_configuration": {
+    "auth_configured_via_protected_env": true,
+    "env_var_name": "RELAY_AUTH_TOKEN",
+    "cli_argument_exposure": false,
+    "fail_closed_mode": true
+  },
+  "site_connection_contract": {
+    "mcp_prompt_file": "SITE_PROMPT_LIVE.txt",
+    "execution_mode_labeling_enforced": true,
+    "server_side_secret_management": true,
+    "blocked_state_on_missing_url": true
+  },
+  "next_human_operations": [
+    "1. Launch local daemon using instructions in RUN_BRIDGE_LOCAL.md.",
+    "2. Provide or approve a secure inbound TLS tunnel/reverse proxy pointing to 127.0.0.1:18888.",
+    "3. Copy SITE_PROMPT_LIVE.txt into ChatGPT @Sites to scaffold the 'COSM-Relay-Bridge' site.",
+    "4. Set the backend HTTPS URL and Bearer token in the Site's server-side settings.",
+    "5. Publish as Personal Plugin and call 'status' from the active ChatGPT Plus Supervisor conversation."
+  ]
+}

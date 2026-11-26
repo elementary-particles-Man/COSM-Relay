@@ -355,34 +355,44 @@ impl LaneDriver {
         runtime_arc: Arc<Mutex<RelayRuntime>>,
         lane_id: LaneId,
         codex_bin_path: String,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
+        // Check if thread_id is configured
+        let target_thread_id = {
+            let rt = runtime_arc
+                .lock()
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            rt.lane_config(&lane_id)
+                .and_then(|cfg| cfg.worker_thread_id.clone())
+        };
+
+        // Synchronously verify codex client spawn, initialization and thread_resume before returning READY
+        let mut codex_client = CodexAppServerClient::spawn(&codex_bin_path).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Failed to spawn codex client: {:?}", e),
+            )
+        })?;
+
+        codex_client.initialize().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                format!("Failed to initialize codex client: {:?}", e),
+            )
+        })?;
+
+        if let Some(ref tid) = target_thread_id {
+            codex_client.thread_resume(tid).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Failed to resume worker thread {}: {:?}", tid, e),
+                )
+            })?;
+        }
+
         let handle = thread::spawn(move || {
-            let mut codex_client = match CodexAppServerClient::spawn(&codex_bin_path) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("LaneDriver failed to spawn codex client: {:?}", e);
-                    return;
-                }
-            };
-
-            if let Err(e) = codex_client.initialize() {
-                eprintln!("LaneDriver codex initialize failed: {:?}", e);
-                return;
-            }
-
-            // Resume bound worker thread if configured
-            {
-                let rt = runtime_arc.lock().unwrap();
-                if let Some(cfg) = rt.lane_config(&lane_id) {
-                    if let Some(ref tid) = cfg.worker_thread_id {
-                        let _ = codex_client.thread_resume(tid);
-                    }
-                }
-            }
-
             while running_clone.load(Ordering::Relaxed) {
                 let dispatch_setup = {
                     let mut rt = runtime_arc.lock().unwrap();
@@ -464,10 +474,10 @@ impl LaneDriver {
             }
         });
 
-        Self {
+        Ok(Self {
             running,
             handle: Some(handle),
-        }
+        })
     }
 
     pub fn stop(&mut self) {

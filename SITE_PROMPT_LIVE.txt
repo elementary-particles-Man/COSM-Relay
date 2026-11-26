@@ -1,0 +1,93 @@
+@Sites Create a new site named "COSM-Relay-Bridge" with the following Model Context Protocol (MCP) tool configurations:
+
+### Operational Mode & Security Rules:
+- **Private Access**: This site and its tools must be private/personal access only.
+- **Server-Side Secret Management**: Store the authorization token securely in server-side environment variables or site connection secrets. NEVER expose tokens in client-side HTML, JavaScript, or public logs.
+- **Labeling**: Every tool response must explicitly include an execution mode label:
+  - Return `"execution_mode": "live"` when successfully connected to the verified COSM-Relay backend.
+  - Return `"execution_mode": "mock"` if synthetic or local preview data is generated.
+- **Blocked State**: If the backend server URL or authentication header is not configured, the tool must immediately return:
+  `{"status": "BLOCKED", "reason": "COSM-Relay backend HTTPS endpoint or authentication token is not configured."}`
+- **Initial Verification**: Only `status` should be invoked first to confirm connectivity and phase before any write-capable tools (`submit`, `ack`, `finish`) are used.
+
+---
+
+### Tool Definitions:
+
+1. status:
+   - annotation: read-only
+   - description: "Query current phase, epoch, active task, pending report, and pause status for a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier (e.g. "poc-fastpath-007" or "tuff-relay").
+   - mapping:
+     - method: GET
+     - path: /status?lane_id={lane_id}
+     - headers:
+       - Authorization: Bearer ${RELAY_AUTH_TOKEN}
+
+2. submit:
+   - annotation: write
+   - description: "Submit a new task JSON payload to a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+     - task_id (string, required): Unique task identifier (e.g. "TASK-001").
+     - payload_json (string, required): Raw JSON string representing the task specification.
+     - in_reply_to (string, optional): Message ID of previous report when answering a decision-required report.
+   - mapping:
+     - method: POST
+     - path: /submit
+     - headers:
+       - Authorization: Bearer ${RELAY_AUTH_TOKEN}
+       - Content-Type: application/json
+     - body:
+       {
+         "lane_id": "{lane_id}",
+         "task_id": "{task_id}",
+         "payload_json": "{payload_json}",
+         "in_reply_to": "{in_reply_to}"
+       }
+
+3. get_report:
+   - annotation: read-only
+   - description: "Retrieve the pending worker report for a registered lane if ready."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+   - mapping:
+     - method: GET
+     - path: /report?lane_id={lane_id}
+     - headers:
+       - Authorization: Bearer ${RELAY_AUTH_TOKEN}
+
+4. ack:
+   - annotation: write
+   - description: "Acknowledge receipt of a completed or decision-required report to transition the lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+     - report_id (string, required): Message ID of the report being acknowledged.
+   - mapping:
+     - method: POST
+     - path: /ack
+     - headers:
+       - Authorization: Bearer ${RELAY_AUTH_TOKEN}
+       - Content-Type: application/json
+     - body:
+       {
+         "lane_id": "{lane_id}",
+         "report_id": "{report_id}"
+       }
+
+5. finish:
+   - annotation: write
+   - description: "Gracefully request completion and stop of the run on a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+   - mapping:
+     - method: POST
+     - path: /finish
+     - headers:
+       - Authorization: Bearer ${RELAY_AUTH_TOKEN}
+       - Content-Type: application/json
+     - body:
+       {
+         "lane_id": "{lane_id}"
+       }

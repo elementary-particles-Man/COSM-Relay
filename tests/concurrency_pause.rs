@@ -54,7 +54,31 @@ fn test_status_and_pause_during_active_dispatch() {
         .unwrap();
     assert!(sub.accepted);
 
-    // 2. Query status via HTTP gateway while accepted
+    // Transition explicitly to Running phase (simulating bound worker turn in-flight)
+    {
+        let mut rt = runtime_arc.lock().unwrap();
+        rt.handle_event(Event::DispatchIntentRecorded {
+            lane_id: lane_id.clone(),
+            binding_epoch: epoch,
+            run_id: RunId::new("run-001").unwrap(),
+            task_id: TaskId::new("task-conc-1").unwrap(),
+        })
+        .unwrap();
+
+        rt.handle_event(Event::WorkerTurnBound {
+            lane_id: lane_id.clone(),
+            binding_epoch: epoch,
+            run_id: RunId::new("run-001").unwrap(),
+            task_id: TaskId::new("task-conc-1").unwrap(),
+            turn_id: TurnId::new("turn-long-running-001").unwrap(),
+        })
+        .unwrap();
+
+        let st = rt.get_state(&lane_id).unwrap();
+        assert_eq!(st.phase, Phase::Running);
+    }
+
+    // 2. Query status via HTTP gateway while in actual Running phase
     let client = req_client();
     let resp = client
         .get(format!(
@@ -66,7 +90,7 @@ fn test_status_and_pause_during_active_dispatch() {
         .send();
     assert!(resp.is_ok());
 
-    // 3. Test Pause request
+    // 3. Test Pause request while in Running phase (ensures new dispatch inhibited, running turn not clobbered)
     {
         let mut rt = runtime_arc.lock().unwrap();
         let (st, _) = rt
@@ -75,9 +99,11 @@ fn test_status_and_pause_during_active_dispatch() {
             })
             .unwrap();
         assert!(st.pause_requested);
+        // Phase must remain Running! (TR-BD-001 §4.1: Running中の停止指示で実行状態をStoppedに上書きしない)
+        assert_eq!(st.phase, Phase::Running);
     }
 
-    // 4. Query status via HTTP gateway while paused
+    // 4. Query status via HTTP gateway while running & paused
     let resp2 = client
         .get(format!(
             "http://{}/status?lane_id={}",

@@ -299,10 +299,19 @@ fn main() {
                 }
             };
 
-            // Start LaneDriver background thread
+            // Start LaneDriver background thread with verified worker binding
             let codex_bin =
                 env::var("CODEX_BIN").unwrap_or_else(|_| "/home/flux/.local/bin/codex".to_string());
-            let _driver = LaneDriver::spawn(runtime_arc.clone(), lane_id.clone(), codex_bin);
+            let _driver = match LaneDriver::spawn(runtime_arc.clone(), lane_id.clone(), codex_bin) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to start LaneDriver (worker binding verification failed): {}",
+                        e
+                    );
+                    process::exit(1);
+                }
+            };
 
             println!(
                 "COSM-Relay daemon running for lane {} (PID: {})",
