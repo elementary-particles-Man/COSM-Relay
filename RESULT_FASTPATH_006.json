@@ -1,0 +1,46 @@
+{
+  "work_id": "COSM-RELAY-FASTPATH-006",
+  "completion_timestamp_utc": "2026-11-26T17:21:00Z",
+  "canonical_repository": "https://github.com/elementary-particles-Man/COSM-Relay",
+  "local_path": "/mnt/thpdoc/Develop/TUFF-Relay",
+  "git_head": "9a931f041801b8ae835a54081a0c031b0ac924de",
+  "release_binary_sha256": "e282f4cb26fb581ba53547b25417b029e9fb28be16810beb0f2ffd402fbcf50a",
+  "actual_daemon_pid_and_ready_state": {
+    "verified_daemon_pid": 1012874,
+    "ready_state": "READY",
+    "loopback_listener": "127.0.0.1:18899",
+    "ipc_socket": "/tmp/cosm-e3-verification-state/ipc/e3-verification-lane.sock"
+  },
+  "local_auth_status": {
+    "fail_closed_enforced": true,
+    "bearer_token_required": true,
+    "empty_token_startup_rejected": true,
+    "unauthorized_http_code": 401
+  },
+  "site_transport_status": {
+    "site_mcp_specification": "SITE_PROMPT.txt",
+    "site_setup_guide": "SITE_SETUP.md",
+    "external_cloud_to_loopback_bridge": "BLOCKED_PENDING_OPERATOR_APPROVAL",
+    "reason": "Direct connections from OpenAI cloud infrastructure (*.openai.com) to local 127.0.0.1 loopback require a user-approved TLS reverse proxy or secure tunnel. No unauthorized external SaaS or unapproved public tunnel was created."
+  },
+  "actual_operator_steps_remaining": [
+    "Step 1: Provide or approve an inbound secure TLS tunnel / reverse proxy URL pointing to the local COSM-Relay HTTP Gateway (e.g. 127.0.0.1:18888).",
+    "Step 2: Copy the 5-tool MCP definition from SITE_PROMPT.txt into ChatGPT @Sites to build the 'COSM-Relay-Bridge' site.",
+    "Step 3: In the Site settings, set the backend server URL to the approved HTTPS tunnel URL and configure the Bearer Authorization header.",
+    "Step 4: Publish the site as a Personal Plugin, activate it in the ChatGPT Plus Supervisor session, and invoke status."
+  ],
+  "AC-01..AC-08_individual_status": {
+    "AC-01_three_rounds_via_real_chatgpt_conversation": "NOT_RUN",
+    "AC-02_out_of_process_release_daemon_3_rounds": "PASS",
+    "AC-03_bounded_http_and_ipc_security": "PASS",
+    "AC-04_mutex_release_during_rpc_wait": "PASS",
+    "AC-05_multi_lane_isolation": "PASS",
+    "AC-06_normative_specifications_diff_zero": "PASS",
+    "AC-07_real_development_task_acceptance": "NOT_RUN",
+    "AC-08_long_running_reconnect_resilience": "NOT_RUN"
+  },
+  "human_interventions": 0,
+  "blockers": [
+    "BLOCKED: Real ChatGPT Plus supervisor connection requires operator to configure an inbound HTTPS URL to the local runner and paste SITE_PROMPT.txt into @Sites. Autonomous deployment of unapproved external tunnels or leaking secrets is strictly prohibited."
+  ]
+}

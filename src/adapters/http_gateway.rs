@@ -9,6 +9,9 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 pub const MAX_REQUEST_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MiB limit
+pub const MAX_REQUEST_LINE_LENGTH: usize = 8 * 1024; // 8 KiB limit
+pub const MAX_HEADER_COUNT: usize = 64; // Max 64 headers
+pub const MAX_HEADER_LINE_LENGTH: usize = 8 * 1024; // 8 KiB per header line
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct HttpGateway {
@@ -80,13 +83,33 @@ fn handle_http_connection(
     adapter: Arc<SupervisorAdapter>,
     expected_token: Option<String>,
 ) -> std::io::Result<()> {
+    // Fail-closed check: if expected_token is None or empty, reject immediately with 401
+    if expected_token
+        .as_ref()
+        .map(|t| t.trim().is_empty())
+        .unwrap_or(true)
+    {
+        let mut writer = &stream;
+        let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Server authentication token not configured or empty\"}";
+        let _ = writer.write_all(resp.as_bytes());
+        return Ok(());
+    }
+    let token = expected_token.unwrap();
+
     // Enforce 30s connection timeouts
     let _ = stream.set_read_timeout(Some(HTTP_TIMEOUT));
     let _ = stream.set_write_timeout(Some(HTTP_TIMEOUT));
 
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
+    let n = reader.read_line(&mut request_line)?;
+    if n == 0 || request_line.len() > MAX_REQUEST_LINE_LENGTH {
+        let mut writer = &stream;
+        let resp = "HTTP/1.1 414 URI Too Long\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Request line too long\"}";
+        let _ = writer.write_all(resp.as_bytes());
+        return Ok(());
+    }
+
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
         return Ok(());
@@ -96,13 +119,34 @@ fn handle_http_connection(
 
     let mut headers = std::collections::HashMap::new();
     let mut content_length: usize = 0;
+    let mut header_count = 0;
+
     loop {
         let mut line = String::new();
-        reader.read_line(&mut line)?;
+        let bytes_read = reader.read_line(&mut line)?;
+        if bytes_read == 0 {
+            break;
+        }
+        if line.len() > MAX_HEADER_LINE_LENGTH {
+            let mut writer = &stream;
+            let resp = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Header line too long\"}";
+            let _ = writer.write_all(resp.as_bytes());
+            return Ok(());
+        }
+
         let trimmed = line.trim();
         if trimmed.is_empty() {
             break;
         }
+
+        header_count += 1;
+        if header_count > MAX_HEADER_COUNT {
+            let mut writer = &stream;
+            let resp = "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Too many header fields\"}";
+            let _ = writer.write_all(resp.as_bytes());
+            return Ok(());
+        }
+
         if let Some((k, v)) = trimmed.split_once(':') {
             let k_lower = k.trim().to_lowercase();
             let v_trim = v.trim().to_string();
@@ -124,18 +168,16 @@ fn handle_http_connection(
         return Ok(());
     }
 
-    // Verify Bearer Token Auth if configured
-    if let Some(ref token) = expected_token {
-        let auth_hdr = headers
-            .get("authorization")
-            .map(|s| s.as_str())
-            .unwrap_or("");
-        let expected_hdr = format!("Bearer {}", token);
-        if auth_hdr != expected_hdr {
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Unauthorized\"}";
-            let _ = writer.write_all(resp.as_bytes());
-            return Ok(());
-        }
+    // Verify Bearer Token Auth (Fail-closed)
+    let auth_hdr = headers
+        .get("authorization")
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let expected_hdr = format!("Bearer {}", token);
+    if auth_hdr != expected_hdr {
+        let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Unauthorized\"}";
+        let _ = writer.write_all(resp.as_bytes());
+        return Ok(());
     }
 
     let mut body = vec![0u8; content_length];

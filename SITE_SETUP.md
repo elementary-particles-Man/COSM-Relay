@@ -1,83 +1,141 @@
-# ChatGPT Sites Plugin Integration Guide for COSM-Relay (R-01 Verification)
+# ChatGPT Sites Plugin Integration Guide for COSM-Relay
 
 ## 1. Background & Scope
-This guide provides the exact single-copy instructions for establishing a connection between the existing ChatGPT Supervisor conversation (Plus account) and the local COSM-Relay runner via the official **ChatGPT Sites Plugin** capability.
+This document specifies the exact configuration, endpoint contracts, and setup instructions for connecting an existing **ChatGPT Plus** Supervisor session to the local COSM-Relay daemon via the official **ChatGPT Sites** capability.
 
-> [!NOTE]
-> - ChatGPT Sites allows users to host web apps and lightweight tools on OpenAI infrastructure.
-> - Sites can attach Model Context Protocol (MCP) tools and be published as personal or workspace Plugins.
-> - The Site acts strictly as a **communication adapter**; it does not replace or host the local Rust Relay Core or local repository worktree.
-
----
-
-## 2. Prerequisites
-1. **Account Tier**: ChatGPT Plus, Pro, Business, or Enterprise.
-2. **Access**: Access to `@Sites` in the ChatGPT prompt interface.
-3. **Local Runner**: COSM-Relay daemon running on the local host with an accessible HTTP endpoint (via secure TLS tunnel or authenticated webhook connector).
+> [!IMPORTANT]
+> - **Zero Rust Core Migration**: ChatGPT Sites functions strictly as a lightweight communication adapter routing HTTP requests to the local runner. The deterministic Rust state machine, journal persistence, and worktree isolation remain entirely local.
+> - **Network Connectivity Reality**: OpenAI ChatGPT Sites execute on cloud infrastructure (`*.openai.com`). A local `127.0.0.1` loopback listener cannot be reached directly across the public Internet without an authenticated HTTPS reverse proxy or tunnel.
+> - **Zero-Cost & Policy Compliance**: In accordance with user directives, no unauthorized external SaaS subscriptions or unapproved public tunnels are automatically deployed. Step 5 details the exact configuration required once an operator provides a TLS reverse proxy / tunnel endpoint.
 
 ---
 
-## 3. Step-by-Step User Setup Instructions
+## 2. Model Context Protocol (MCP) Tool Specifications (TR-DD-001 §6.3)
 
-### Step 1: Open ChatGPT and Invoke `@Sites`
-In your ChatGPT conversation interface (or a new session):
+The Site registers 5 Model Context Protocol tools. Each maps directly to an authenticated HTTP endpoint on the COSM-Relay runner.
+
+### 1. `status` (Read-only)
+- **HTTP Method & Path**: `GET /status?lane_id={lane_id}`
+- **Headers**: `Authorization: Bearer <SECRET_TOKEN>`
+- **Query Parameters**:
+  - `lane_id` (string, required): Registered lane identifier (e.g. `"tuff-relay"`).
+- **Response Format (200 OK)**:
+  ```json
+  {
+    "lane_id": "tuff-relay",
+    "phase": "WaitTask",
+    "binding_epoch": 1,
+    "active_task": null,
+    "pending_report": null,
+    "is_decision_required": false,
+    "pause_requested": false
+  }
+  ```
+
+### 2. `submit` (Write)
+- **HTTP Method & Path**: `POST /submit`
+- **Headers**: `Authorization: Bearer <SECRET_TOKEN>`, `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "lane_id": "tuff-relay",
+    "task_id": "TASK-20261127-001",
+    "payload_json": "{\"prompt\":\"Execute task...\"}",
+    "in_reply_to": null
+  }
+  ```
+- **Response Format (200 OK)**:
+  ```json
+  {
+    "accepted": true,
+    "message_id": "msg-TASK-20261127-001-epoch-1",
+    "error": null
+  }
+  ```
+
+### 3. `get_report` (Read-only)
+- **HTTP Method & Path**: `GET /report?lane_id={lane_id}`
+- **Headers**: `Authorization: Bearer <SECRET_TOKEN>`
+- **Query Parameters**:
+  - `lane_id` (string, required)
+- **Response Format (200 OK)**:
+  ```json
+  {
+    "report_available": true,
+    "report_id": "rep-01a218df-1892-7d10-9b81-6a7353ca00b5",
+    "is_decision_required": false,
+    "payload_utf8": "Task report output..."
+  }
+  ```
+
+### 4. `ack` (Write)
+- **HTTP Method & Path**: `POST /ack`
+- **Headers**: `Authorization: Bearer <SECRET_TOKEN>`, `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "lane_id": "tuff-relay",
+    "report_id": "rep-01a218df-1892-7d10-9b81-6a7353ca00b5"
+  }
+  ```
+- **Response Format (200 OK)**:
+  ```json
+  {
+    "acked": true,
+    "new_phase": "WaitTask"
+  }
+  ```
+
+### 5. `finish` (Write)
+- **HTTP Method & Path**: `POST /finish`
+- **Headers**: `Authorization: Bearer <SECRET_TOKEN>`, `Content-Type: application/json`
+- **Request Body**:
+  ```json
+  {
+    "lane_id": "tuff-relay"
+  }
+  ```
+- **Response Format (200 OK)**:
+  ```json
+  {
+    "finished": true,
+    "new_phase": "Stopped"
+  }
+  ```
+
+---
+
+## 3. Step-by-Step Operator Setup Instructions
+
+### Step 1: Start Local Runner in Secure Daemon Mode
+On the local machine, launch the release binary:
+```bash
+target/release/tuff-relay serve --lane tuff-relay --bind 127.0.0.1:18888 --token "$RELAY_AUTH_TOKEN"
+```
+Verify the output confirms:
+```text
+HTTP Gateway listening on 127.0.0.1:18888
+IPC Server listening on "/.../ipc/tuff-relay.sock"
+COSM-Relay daemon running for lane tuff-relay (PID: ...)
+READY
+```
+
+### Step 2: Open ChatGPT and Invoke `@Sites`
+In your ChatGPT conversation (or a dedicated integration session):
 ```text
 @Sites Create a new site named "COSM-Relay-Bridge"
 ```
 
-### Step 2: Configure MCP Tools on the Site
-Provide the following instruction to ChatGPT to bind the official TR-DD-001 §6.3 minimum supervisor tools (5 operations: status, submit, get_report, ack, finish):
-```text
-Add the following Model Context Protocol (MCP) tool specifications to this site:
+### Step 3: Configure MCP Tools
+Copy and paste the exact contents of [`SITE_PROMPT.txt`](file:///mnt/thpdoc/Develop/TUFF-Relay/SITE_PROMPT.txt) into the conversation with `@Sites`.
 
-1. Tool Name: status
-   Description: "Query current phase, epoch, active task, and pause status for a registered lane."
-   Parameters:
-     - lane_id (string, required): Registered lane identifier (e.g., "tuff-relay").
+### Step 4: Test in Private Site Preview
+In the private interactive preview of the Site:
+1. Execute `status` for `tuff-relay` -> verify mock/live status response.
+2. Confirm parameter validation works as expected.
 
-2. Tool Name: submit
-   Description: "Submit a task JSON payload to a registered lane."
-   Parameters:
-     - lane_id (string, required): Registered lane identifier.
-     - task_id (string, required): Unique task identifier.
-     - payload_json (string, required): Raw JSON payload string of the task.
-     - in_reply_to (string, optional): Message ID of previous report if continuing after decision.
-
-3. Tool Name: get_report
-   Description: "Retrieve pending worker report for a registered lane (Read-only)."
-   Parameters:
-     - lane_id (string, required): Registered lane identifier.
-
-4. Tool Name: ack
-   Description: "Acknowledge receipt of a completed or decision-required report."
-   Parameters:
-     - lane_id (string, required): Registered lane identifier.
-     - report_id (string, required): Message ID of the report being acknowledged.
-
-5. Tool Name: finish
-   Description: "Gracefully stop and complete the current run on a registered lane."
-   Parameters:
-     - lane_id (string, required): Registered lane identifier.
-```
-
-### Step 3: Test with Harmless Sample Data
-In the private interactive preview of the Site, test each tool using mock responses:
-- Execute `status` for `tuff-relay` -> verify response format `{"lane_id":"tuff-relay","phase":"WaitTask",...}`.
-- Execute `submit` with task `TEST-001` -> verify acceptance confirmation.
-- **Do not send sensitive tokens, passwords, or production code during preview.**
-
-### Step 4: Publish Site as Plugin
-1. Click the **Publish** button in the Site management pane.
-2. Under Sharing, select **Personal** (or workspace-internal if on Team/Enterprise).
-3. Once published, navigate to your **Plugins** directory on ChatGPT and verify that **COSM-Relay-Bridge** appears under Installed Plugins.
-
-### Step 5: Connect Outbound Transport to Local Relay
-1. When prompted for the backend connection URL in the Plugin settings, enter the authenticated HTTPS endpoint exposed by the local COSM-Relay HTTP gateway.
-2. Set the authentication token header matching the local relay config (`Authorization: Bearer <SHARED_SECRET>`).
-
----
-
-## 4. Operational & Cost Assessment
-- **Cost**: Creating and using Sites is included in existing ChatGPT Plus usage limits; no additional OpenAI API billing is incurred.
-- **Confirmation Prompts**: By default, ChatGPT presents a confirmation dialog on the first write-action call (`submit`, `ack`, `finish`). Once confirmed by the user, calls in that active conversation proceed automatically.
-- **Fallback**: If Plugin invocation fails or times out, the local Relay state remains safely in its current Phase without state loss or auto-dispatch clobbering.
+### Step 5: Connect Outbound Transport & Publish
+1. Provide the authenticated HTTPS endpoint URL (configured via user's approved reverse proxy / TLS tunnel) in the Site connection settings.
+2. Configure header: `Authorization: Bearer <SECRET_TOKEN>`.
+3. Under Publish options, select **Personal** plugin.
+4. Return to the main ChatGPT conversation and activate the **COSM-Relay-Bridge** plugin.

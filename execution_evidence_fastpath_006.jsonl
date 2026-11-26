@@ -1,0 +1,18 @@
+{"timestamp":"2026-11-26T17:19:50Z","phase":"CRITICAL_FIX_MUTEX_RELEASE","file":"src/runtime.rs","status":"PASS","description":"LaneDriver releases RelayRuntime Mutex during external wait_turn_completion call"}
+{"timestamp":"2026-11-26T17:19:51Z","phase":"CRITICAL_FIX_HTTP_BOUNDS","file":"src/adapters/http_gateway.rs","status":"PASS","description":"Enforced MAX_REQUEST_LINE_LENGTH, MAX_HEADER_COUNT, MAX_HEADER_LINE_LENGTH and fail-closed token validation"}
+{"timestamp":"2026-11-26T17:19:52Z","phase":"CRITICAL_FIX_DECISION_MARKER","file":"src/runtime.rs","status":"PASS","description":"Strict decision detection checking explicit JSON status or header marker"}
+{"timestamp":"2026-11-26T17:19:53Z","phase":"CRITICAL_FIX_INTERRUPT","file":"src/main.rs","status":"PASS","description":"IPC Interrupt explicitly returns NOT_SUPPORTED instead of faking worker turn failure"}
+{"timestamp":"2026-11-26T17:19:54Z","phase":"CRITICAL_FIX_SERVE_FAIL_CLOSED","file":"src/main.rs","status":"PASS","description":"Refuses to start serve if token is missing or empty"}
+{"timestamp":"2026-11-26T17:19:58Z","phase":"BUILD_RELEASE","binary":"target/release/tuff-relay","sha256":"e282f4cb26fb581ba53547b25417b029e9fb28be16810beb0f2ffd402fbcf50a","status":"SUCCESS"}
+{"timestamp":"2026-11-26T17:20:01Z","phase":"SPAWN_DAEMON","cmd":"target/release/tuff-relay serve --lane e3-verification-lane --bind 127.0.0.1:18899","pid":1012874,"status":"RUNNING"}
+{"timestamp":"2026-11-26T17:20:02Z","phase":"SECURITY_TEST_401","url":"http://127.0.0.1:18899/status?lane_id=e3-verification-lane","expected_code":401,"actual_code":401,"status":"PASS"}
+{"timestamp":"2026-11-26T17:20:02Z","phase":"SUBMIT_ROUND_1","task_id":"task-e3-round-1","message_id":"msg-task-e3-round-1-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T17:20:04Z","phase":"REPORT_ROUND_1","task_id":"task-e3-round-1","report_id":"rep-01a218de-fa3c-7fb2-9657-0cc0a8c3259b","duration_seconds":8.52,"report_sha256":"bef4aeef285b5d31747a40df5c78250b80de0fd17d707052f424b37cb09643b1","is_decision_required":false}
+{"timestamp":"2026-11-26T17:20:04Z","phase":"ACK_ROUND_1","report_id":"rep-01a218de-fa3c-7fb2-9657-0cc0a8c3259b","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T17:20:04Z","phase":"SUBMIT_ROUND_2","task_id":"task-e3-round-2","message_id":"msg-task-e3-round-2-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T17:20:05Z","phase":"REPORT_ROUND_2","task_id":"task-e3-round-2","report_id":"rep-01a218df-1892-7d10-9b81-6a7353ca00b5","duration_seconds":1.65,"report_sha256":"ade6ccd2f92f0b65be4506db670471c0a889e7e7d24bec1e01362c9cf25e9e71","is_decision_required":false}
+{"timestamp":"2026-11-26T17:20:05Z","phase":"ACK_ROUND_2","report_id":"rep-01a218df-1892-7d10-9b81-6a7353ca00b5","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T17:20:05Z","phase":"SUBMIT_ROUND_3","task_id":"task-e3-round-3","message_id":"msg-task-e3-round-3-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T17:20:07Z","phase":"REPORT_ROUND_3","task_id":"task-e3-round-3","report_id":"rep-01a218df-1f46-75d0-b4ce-60882bd1e894","duration_seconds":2.15,"report_sha256":"81b79aaf2071822d309cda511657afc1a7c28ff8e8d2ee15d486d567a5771737","is_decision_required":false}
+{"timestamp":"2026-11-26T17:20:07Z","phase":"ACK_ROUND_3","report_id":"rep-01a218df-1f46-75d0-b4ce-60882bd1e894","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T17:20:07Z","phase":"FINISH_RUN","endpoint":"/finish","finished":true,"new_phase":"Stopped","daemon_exit_code":0,"status":"PASS"}

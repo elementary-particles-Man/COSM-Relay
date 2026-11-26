@@ -126,6 +126,14 @@ fn main() {
             let auth_token =
                 parse_arg(&args, "--token").or_else(|| env::var("RELAY_AUTH_TOKEN").ok());
 
+            let auth_token = match auth_token {
+                Some(t) if !t.trim().is_empty() => t,
+                _ => {
+                    eprintln!("Error: --token or RELAY_AUTH_TOKEN is required and cannot be empty for serve mode (fail-closed).");
+                    process::exit(1);
+                }
+            };
+
             let thread_id = env::var("CODEX_TEST_THREAD_ID")
                 .ok()
                 .or_else(|| parse_arg(&args, "--thread"));
@@ -152,9 +160,9 @@ fn main() {
             let runtime_arc = Arc::new(Mutex::new(runtime));
             let adapter = Arc::new(SupervisorAdapter::new(runtime_arc.clone(), lane_id.clone()));
 
-            // Start HTTP Gateway
+            // Start HTTP Gateway (fail-closed token)
             let http_gateway =
-                match HttpGateway::start(&bind_addr, adapter.clone(), auth_token.clone()) {
+                match HttpGateway::start(&bind_addr, adapter.clone(), Some(auth_token)) {
                     Ok(gw) => {
                         println!("HTTP Gateway listening on {}", gw.local_addr());
                         gw
@@ -247,52 +255,14 @@ fn main() {
                         }
                     }
                     IpcRequest::Interrupt { .. } => {
-                        let epoch = rt
-                            .get_state(&lid_for_ipc)
-                            .map(|s| s.binding_epoch)
-                            .unwrap_or(1);
-                        let run_id = rt.get_state(&lid_for_ipc).and_then(|s| s.run_id.clone());
-                        let task_id = rt
-                            .get_state(&lid_for_ipc)
-                            .and_then(|s| s.active_task.clone());
-                        let turn_id = rt
-                            .get_state(&lid_for_ipc)
-                            .and_then(|s| s.worker_turn.clone());
-
-                        if let (Some(rid), Some(_tid), Some(turn)) = (run_id, task_id, turn_id) {
-                            match rt.handle_event(Event::WorkerTurnFailed {
-                                lane_id: lid_for_ipc.clone(),
-                                binding_epoch: epoch,
-                                run_id: rid.clone(),
-                                turn_id: turn,
-                                failure_report_envelope: Envelope::new(
-                                    lid_for_ipc.clone(),
-                                    epoch,
-                                    rid,
-                                    MessageId::new("msg-interrupted").unwrap(),
-                                    TaskId::new("task-interrupted").unwrap(),
-                                    None,
-                                    MessageKind::Report,
-                                    "{\"status\":\"interrupted\"}",
-                                ),
-                            }) {
-                                Ok((st, _)) => IpcResponse {
-                                    success: true,
-                                    payload: serde_json::to_value(st).unwrap_or_default(),
-                                    error: None,
-                                },
-                                Err(e) => IpcResponse {
-                                    success: false,
-                                    payload: serde_json::Value::Null,
-                                    error: Some(format!("{:?}", e)),
-                                },
-                            }
-                        } else {
-                            IpcResponse {
-                                success: false,
-                                payload: serde_json::Value::Null,
-                                error: Some("No active run or turn to interrupt".to_string()),
-                            }
+                        // Note per CRITICAL_SOURCE_FINDINGS:
+                        // Genuine interrupt requires communicating to the worker's active turn via codex app-server RPC
+                        // (turn/interrupt) and waiting for authoritative turn/completed with status=interrupted.
+                        // Faking success without worker RPC is prohibited.
+                        IpcResponse {
+                            success: false,
+                            payload: serde_json::Value::Null,
+                            error: Some("NOT_SUPPORTED: out-of-band turn interrupt requires app-server turn/interrupt RPC channel".to_string()),
                         }
                     }
                     IpcRequest::ExportRaw { .. } => {

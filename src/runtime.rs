@@ -2,7 +2,7 @@ use crate::adapters::codex::CodexAppServerClient;
 use crate::core::envelope::Envelope;
 use crate::core::reducer::{Event, ReduceError, SideEffect};
 use crate::core::state::LaneState;
-use crate::core::types::{LaneId, MessageId};
+use crate::core::types::{LaneId, MessageId, RunId, TaskId, TurnId};
 use crate::FileJournal;
 use std::collections::HashMap;
 use std::io;
@@ -115,18 +115,48 @@ impl RelayRuntime {
         self.states.insert(lane_id, new_state.clone());
         Ok((new_state, effects))
     }
+}
 
-    /// Process active dispatch side effect by invoking codex client turn using registered worker binding
-    pub fn execute_dispatch_to_worker(
+/// Inspects raw worker report text for explicit decision marker per TR-DD-001 §3.3.
+/// Does not guess based on loose substrings. Looks for explicit JSON field `"status": "DECISION_REQUIRED"`
+/// or exact uppercase token `DECISION_REQUIRED` at word boundaries/marker headers.
+pub fn is_explicit_decision_required(report_text: &str) -> bool {
+    // 1. Check if structured JSON with status == "DECISION_REQUIRED"
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(report_text) {
+        if let Some(st) = v.get("status").and_then(|s| s.as_str()) {
+            if st == "DECISION_REQUIRED" {
+                return true;
+            }
+        }
+    }
+    // 2. Check for explicit marker tokens (e.g. [DECISION_REQUIRED] or DECISION_REQUIRED: / ^DECISION_REQUIRED$)
+    for line in report_text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "DECISION_REQUIRED"
+            || trimmed.starts_with("DECISION_REQUIRED:")
+            || trimmed.starts_with("[DECISION_REQUIRED]")
+            || trimmed.starts_with("## DECISION_REQUIRED")
+        {
+            return true;
+        }
+    }
+    false
+}
+
+impl RelayRuntime {
+    /// Dispatches active accepted task up to turn_start without holding runtime lock across turn completion wait.
+    pub fn begin_worker_turn(
         &mut self,
         lane_id: &LaneId,
         codex_client: &mut CodexAppServerClient,
-    ) -> Result<String, String> {
+    ) -> Result<(TurnId, String, Envelope, TaskId, u64, RunId), String> {
         let state = self.get_state(lane_id).ok_or("Lane not found")?.clone();
         let active_task = state.active_task.ok_or("No active task on lane")?;
         let task_env = state
             .active_task_envelope
             .ok_or("No active task envelope on lane")?;
+        let run_id = state.run_id.ok_or("No active run")?;
+        let epoch = state.binding_epoch;
 
         let thread_id = {
             let cfg = self.lane_config(lane_id).ok_or("Lane config not found")?;
@@ -138,8 +168,8 @@ impl RelayRuntime {
         // 1. Record dispatch intent
         self.handle_event(Event::DispatchIntentRecorded {
             lane_id: lane_id.clone(),
-            binding_epoch: state.binding_epoch,
-            run_id: state.run_id.clone().ok_or("No active run")?,
+            binding_epoch: epoch,
+            run_id: run_id.clone(),
             task_id: active_task.clone(),
         })
         .map_err(|e| format!("{:?}", e))?;
@@ -148,15 +178,11 @@ impl RelayRuntime {
         let turn_id_str = match codex_client.turn_start(&thread_id, &task_env.payload_utf8) {
             Ok(tid) => tid,
             Err(e) => {
-                // If turn start failed or uncertain, transition to DispatchUncertain
                 let _ = self.handle_event(Event::DispatchUncertain {
                     lane_id: lane_id.clone(),
-                    binding_epoch: state.binding_epoch,
-                    run_id: state
-                        .run_id
-                        .clone()
-                        .unwrap_or_else(|| crate::core::types::RunId::new("unknown").unwrap()),
-                    task_id: active_task.clone(),
+                    binding_epoch: epoch,
+                    run_id: run_id.clone(),
+                    task_id: active_task,
                     reason: format!("Failed to start turn on worker: {:?}", e),
                 });
                 return Err(format!("Codex turn_start error: {:?}", e));
@@ -166,39 +192,35 @@ impl RelayRuntime {
         let turn_id = crate::core::types::TurnId::new(&turn_id_str)
             .map_err(|e| format!("Invalid turn ID from worker: {:?}", e))?;
 
-        // 3. Bind worker turn
+        // 3. Bind worker turn in runtime
         self.handle_event(Event::WorkerTurnBound {
             lane_id: lane_id.clone(),
-            binding_epoch: state.binding_epoch,
-            run_id: state.run_id.clone().ok_or("No active run")?,
+            binding_epoch: epoch,
+            run_id: run_id.clone(),
             task_id: active_task.clone(),
             turn_id: turn_id.clone(),
         })
         .map_err(|e| format!("{:?}", e))?;
 
-        // 4. Wait for turn completion
-        let result = match codex_client.wait_turn_completion(&turn_id_str) {
-            Ok(res) => res,
-            Err(e) => {
-                let _ = self.handle_event(Event::WorkerOutcomeUncertain {
-                    lane_id: lane_id.clone(),
-                    binding_epoch: state.binding_epoch,
-                    run_id: state
-                        .run_id
-                        .clone()
-                        .unwrap_or_else(|| crate::core::types::RunId::new("unknown").unwrap()),
-                    turn_id: turn_id.clone(),
-                    reason: format!("Worker turn completion uncertain: {:?}", e),
-                });
-                return Err(format!("Codex wait_turn_completion error: {:?}", e));
-            }
-        };
+        Ok((turn_id, turn_id_str, task_env, active_task, epoch, run_id))
+    }
 
-        // 5. Construct report envelope
+    /// Complete worker turn after external RPC finished
+    #[allow(clippy::too_many_arguments)]
+    pub fn complete_worker_turn(
+        &mut self,
+        lane_id: &LaneId,
+        turn_id: TurnId,
+        turn_id_str: &str,
+        task_env: &Envelope,
+        active_task: TaskId,
+        epoch: u64,
+        run_id: RunId,
+        report_text: &str,
+    ) -> Result<(), String> {
         let report_msg_id = format!("rep-{}", turn_id_str);
-        let is_decision_required = result.report_text.contains("DECISION_REQUIRED")
-            || result.report_text.contains("decision_required");
-        let kind = if is_decision_required {
+        let is_decision = is_explicit_decision_required(report_text);
+        let kind = if is_decision {
             crate::core::envelope::MessageKind::DecisionRequired
         } else {
             crate::core::envelope::MessageKind::Report
@@ -206,24 +228,117 @@ impl RelayRuntime {
 
         let rep_env = Envelope::new(
             lane_id.clone(),
-            state.binding_epoch,
-            state.run_id.clone().ok_or("No active run")?,
+            epoch,
+            run_id.clone(),
             MessageId::new(&report_msg_id).map_err(|e| format!("{:?}", e))?,
             active_task,
             Some(task_env.message_id.clone()),
             kind,
-            result.report_text.as_str(),
+            report_text,
         );
 
-        // 6. Complete worker turn
         self.handle_event(Event::WorkerTurnCompleted {
             lane_id: lane_id.clone(),
-            binding_epoch: state.binding_epoch,
-            run_id: state.run_id.clone().ok_or("No active run")?,
+            binding_epoch: epoch,
+            run_id,
             turn_id,
             report_envelope: rep_env,
         })
         .map_err(|e| format!("{:?}", e))?;
+
+        Ok(())
+    }
+
+    /// Record worker turn uncertain outcome
+    pub fn record_worker_uncertain(
+        &mut self,
+        lane_id: &LaneId,
+        turn_id: TurnId,
+        epoch: u64,
+        run_id: RunId,
+        reason: String,
+    ) -> Result<(), String> {
+        self.handle_event(Event::WorkerOutcomeUncertain {
+            lane_id: lane_id.clone(),
+            binding_epoch: epoch,
+            run_id,
+            turn_id,
+            reason,
+        })
+        .map_err(|e| format!("{:?}", e))?;
+        Ok(())
+    }
+
+    /// Record worker turn failed outcome
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_worker_failed(
+        &mut self,
+        lane_id: &LaneId,
+        turn_id: TurnId,
+        turn_id_str: &str,
+        task_env: &Envelope,
+        active_task: TaskId,
+        epoch: u64,
+        run_id: RunId,
+        err_msg: &str,
+    ) -> Result<(), String> {
+        let rep_env = Envelope::new(
+            lane_id.clone(),
+            epoch,
+            run_id.clone(),
+            MessageId::new(format!("rep-fail-{}", turn_id_str)).map_err(|e| format!("{:?}", e))?,
+            active_task,
+            Some(task_env.message_id.clone()),
+            crate::core::envelope::MessageKind::Report,
+            err_msg,
+        );
+
+        self.handle_event(Event::WorkerTurnFailed {
+            lane_id: lane_id.clone(),
+            binding_epoch: epoch,
+            run_id,
+            turn_id,
+            failure_report_envelope: rep_env,
+        })
+        .map_err(|e| format!("{:?}", e))?;
+
+        Ok(())
+    }
+
+    /// Process active dispatch side effect by invoking codex client turn using registered worker binding
+    pub fn execute_dispatch_to_worker(
+        &mut self,
+        lane_id: &LaneId,
+        codex_client: &mut CodexAppServerClient,
+    ) -> Result<String, String> {
+        let (turn_id, turn_id_str, task_env, active_task, epoch, run_id) =
+            self.begin_worker_turn(lane_id, codex_client)?;
+
+        // 4. Wait for turn completion
+        let result = match codex_client.wait_turn_completion(&turn_id_str) {
+            Ok(res) => res,
+            Err(e) => {
+                let _ = self.record_worker_uncertain(
+                    lane_id,
+                    turn_id,
+                    epoch,
+                    run_id,
+                    format!("Worker turn completion uncertain: {:?}", e),
+                );
+                return Err(format!("Codex wait_turn_completion error: {:?}", e));
+            }
+        };
+
+        self.complete_worker_turn(
+            lane_id,
+            turn_id,
+            &turn_id_str,
+            &task_env,
+            active_task,
+            epoch,
+            run_id,
+            &result.report_text,
+        )?;
 
         Ok(result.report_text)
     }
@@ -269,18 +384,80 @@ impl LaneDriver {
             }
 
             while running_clone.load(Ordering::Relaxed) {
-                let should_dispatch = {
-                    let rt = runtime_arc.lock().unwrap();
-                    if let Some(st) = rt.get_state(&lane_id) {
+                let dispatch_setup = {
+                    let mut rt = runtime_arc.lock().unwrap();
+                    let should_dispatch = if let Some(st) = rt.get_state(&lane_id) {
                         st.phase == crate::core::state::Phase::Accepted && !st.pause_requested
                     } else {
                         false
+                    };
+
+                    if should_dispatch {
+                        rt.begin_worker_turn(&lane_id, &mut codex_client).ok()
+                    } else {
+                        None
                     }
                 };
 
-                if should_dispatch {
+                if let Some((turn_id, turn_id_str, task_env, active_task, epoch, run_id)) =
+                    dispatch_setup
+                {
+                    // Wait for turn completion WITHOUT holding runtime_arc lock!
+                    let result = codex_client.wait_turn_completion(&turn_id_str);
+
                     let mut rt = runtime_arc.lock().unwrap();
-                    let _ = rt.execute_dispatch_to_worker(&lane_id, &mut codex_client);
+                    match result {
+                        Ok(res) => {
+                            let _ = rt.complete_worker_turn(
+                                &lane_id,
+                                turn_id,
+                                &turn_id_str,
+                                &task_env,
+                                active_task,
+                                epoch,
+                                run_id,
+                                &res.report_text,
+                            );
+                        }
+                        Err(crate::adapters::codex::CodexAdapterError::TurnInterrupted {
+                            ..
+                        }) => {
+                            let _ = rt.record_worker_failed(
+                                &lane_id,
+                                turn_id,
+                                &turn_id_str,
+                                &task_env,
+                                active_task,
+                                epoch,
+                                run_id,
+                                "{\"status\":\"interrupted\"}",
+                            );
+                        }
+                        Err(crate::adapters::codex::CodexAdapterError::TurnFailed {
+                            message,
+                            ..
+                        }) => {
+                            let _ = rt.record_worker_failed(
+                                &lane_id,
+                                turn_id,
+                                &turn_id_str,
+                                &task_env,
+                                active_task,
+                                epoch,
+                                run_id,
+                                &format!("{{\"status\":\"failed\",\"error\":{:?}}}", message),
+                            );
+                        }
+                        Err(e) => {
+                            let _ = rt.record_worker_uncertain(
+                                &lane_id,
+                                turn_id,
+                                epoch,
+                                run_id,
+                                format!("Worker turn completion uncertain: {:?}", e),
+                            );
+                        }
+                    }
                 } else {
                     thread::sleep(std::time::Duration::from_millis(100));
                 }

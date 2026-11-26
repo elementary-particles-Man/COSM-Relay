@@ -29,4 +29,4 @@
    - parameters:
      - lane_id (string, required): Registered lane identifier.
 
-Configure the site to route these tool calls to my authenticated COSM-Relay gateway URL with Bearer token authentication.
+Set the backend server URL to my authenticated COSM-Relay gateway endpoint with Bearer authentication header.

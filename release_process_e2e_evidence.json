@@ -2,8 +2,8 @@
   "work_id": "COSM-RELAY-FASTPATH-005",
   "binary": {
     "path": "/mnt/thpdoc/Develop/TUFF-Relay/target/release/tuff-relay",
-    "sha256": "ecb9efef074ce13dabbe492ecdcc0b8c74c5eda1b9efef98b43218952859446e",
-    "pid": 978118
+    "sha256": "e282f4cb26fb581ba53547b25417b029e9fb28be16810beb0f2ffd402fbcf50a",
+    "pid": 1012874
   },
   "bind_addr": "127.0.0.1:18899",
   "lane_id": "e3-verification-lane",
@@ -13,9 +13,9 @@
       "round": 1,
       "task_id": "task-e3-round-1",
       "message_id": "msg-task-e3-round-1-epoch-1",
-      "report_id": "rep-01a218bf-ef15-7362-9f47-e0d9b97f5e14",
+      "report_id": "rep-01a218de-fa3c-7fb2-9657-0cc0a8c3259b",
       "report_sha256": "bef4aeef285b5d31747a40df5c78250b80de0fd17d707052f424b37cb09643b1",
-      "duration_seconds": 5.03,
+      "duration_seconds": 8.517,
       "is_decision_required": false,
       "payload_preview": "RELEASE_TEST_OK_ROUND_1"
     },
@@ -23,9 +23,9 @@
       "round": 2,
       "task_id": "task-e3-round-2",
       "message_id": "msg-task-e3-round-2-epoch-1",
-      "report_id": "rep-01a218c0-00fb-7120-ac4c-5156f7d91b2f",
+      "report_id": "rep-01a218df-1892-7d10-9b81-6a7353ca00b5",
       "report_sha256": "ade6ccd2f92f0b65be4506db670471c0a889e7e7d24bec1e01362c9cf25e9e71",
-      "duration_seconds": 1.381,
+      "duration_seconds": 1.652,
       "is_decision_required": false,
       "payload_preview": "RELEASE_TEST_OK_ROUND_2"
     },
@@ -33,9 +33,9 @@
       "round": 3,
       "task_id": "task-e3-round-3",
       "message_id": "msg-task-e3-round-3-epoch-1",
-      "report_id": "rep-01a218c0-0683-7063-98e4-c854b6f22740",
+      "report_id": "rep-01a218df-1f46-75d0-b4ce-60882bd1e894",
       "report_sha256": "81b79aaf2071822d309cda511657afc1a7c28ff8e8d2ee15d486d567a5771737",
-      "duration_seconds": 1.705,
+      "duration_seconds": 2.154,
       "is_decision_required": false,
       "payload_preview": "RELEASE_TEST_OK_ROUND_3"
     }
