@@ -1,0 +1,95 @@
+{
+  "work_id": "COSM-RELAY-FASTPATH-004",
+  "observed_repo_head": "8b0d75a665e30908c15c37609301e4d38e78a6e3",
+  "local_diff": "src/adapters/http_gateway.rs, src/adapters/mod.rs, src/ipc.rs, src/lib.rs, tests/http_gateway.rs, tests/multi_lane_isolation.rs, SITE_SETUP.md",
+  "changed_files": [
+    "SITE_SETUP.md",
+    "src/adapters/http_gateway.rs",
+    "src/adapters/mod.rs",
+    "src/ipc.rs",
+    "src/lib.rs",
+    "tests/http_gateway.rs",
+    "tests/multi_lane_isolation.rs",
+    "RESULT_FASTPATH_004.json",
+    "REPORT_FASTPATH_004.md",
+    "execution_evidence_fastpath_004.jsonl"
+  ],
+  "F01_F05_status": {
+    "F01_durable_journal": "PASS (OS-level flock exclusivity + monotonic sequence + crash replay)",
+    "F02_runtime_state_machine": "PASS (Real driver loop execute_dispatch_to_worker + multi-lane isolation verified)",
+    "F03_mock_auto_loop": "PASS (3-round consecutive loop, decision handling, fault injection & reconcile)",
+    "F04_codex_app_server_compatibility": "PASS (Live test thread turn verified; exact raw JSON output preserved)",
+    "F05_supervisor_gpt_adapter": "PASS (MCP stdio server and HTTP Gateway with Bearer token authentication verified)"
+  },
+  "P0_UT_FT_IT_individual_status": {
+    "P0_001_P0_003": "PASS",
+    "UT_01_types_envelope": "PASS",
+    "UT_02_reducer_determinism": "PASS",
+    "UT_03_envelope_tamper_evidence": "PASS",
+    "UT_04_json_roundtrip_hash_preservation": "PASS",
+    "UT_05_journal_persistence_and_replay": "PASS",
+    "UT_06_os_file_lock_exclusivity": "PASS",
+    "UT_07_supervisor_mcp_server_protocol": "PASS",
+    "UT_08_http_gateway_authentication": "PASS",
+    "FT_01_fault_dispatch_uncertain": "PASS",
+    "FT_02_fault_reconcile_epoch_increment": "PASS",
+    "FT_03_fault_worker_failed_report": "PASS",
+    "FT_04_fault_worker_outcome_uncertain": "PASS",
+    "FT_05_fault_pause_and_resume_semantics": "PASS",
+    "FT_06_fault_duplicate_task_rejection": "PASS",
+    "FT_07_fault_task_conflict_rejection": "PASS",
+    "FT_08_fault_unauthorized_lane_rejection": "PASS",
+    "IT_01_mock_loop_3_consecutive_rounds": "PASS",
+    "IT_02_decision_required_to_wait_decision_flow": "PASS",
+    "IT_03_supervisor_adapter_contract_and_security": "PASS",
+    "IT_04_live_codex_turn_execution_and_report": "PASS",
+    "IT_05_multi_lane_independent_isolation": "PASS"
+  },
+  "AC_01_AC_08_individual_status": {
+    "AC-01": "NOT_RUN / BLOCKED (ChatGPT Sites Plugin setup document SITE_SETUP.md prepared; awaiting user publish/connect)",
+    "AC-02": "PASS (Exact UTF-8 and SHA-256 preservation verified on live Codex and mock reports)",
+    "AC-03": "PASS (WaitDecision state prevents unapproved task execution on DECISION_REQUIRED)",
+    "AC-04": "PASS (OS flock prevents duplicate runner instances; crash replay verified)",
+    "AC-05": "PASS (2 concurrent independent lanes tested in test_multi_lane_independent_operation_and_isolation; pausing lane1 leaves lane2 unaffected)",
+    "AC-06": "PASS (CLI status, pause, resume, stop, and Unix domain socket IPC control verified)",
+    "AC-07": "NOT_RUN (Live acceptance pending ChatGPT Sites plugin activation)",
+    "AC-08": "BLOCKED (Long-running session timeout measurement pending live ChatGPT Sites connection)"
+  },
+  "mock_vs_live": {
+    "mock_supervisor_loop": "PASS (3 consecutive automated rounds without manual intervention)",
+    "mock_codex_loop": "PASS (Full transition and replay regression)",
+    "live_codex_app_server": "PASS (Live turn executed: turn_id 01a21889-96a8-7dc3-bc0e-02254feb5075, exact report verified)",
+    "live_chatgpt_supervisor": "BLOCKED (Requires user action in ChatGPT: follow SITE_SETUP.md to publish COSM-Relay-Bridge site as personal plugin)"
+  },
+  "R_01_R_06_status": {
+    "R-01": "BLOCKED (ChatGPT Sites Plugin route documented in SITE_SETUP.md; awaiting human publish/install in ChatGPT Plus)",
+    "R-02": "NOT_RUN (CLI runner provided; dual-operation with existing active TUI session avoided per safety specification)",
+    "R-03": "PASS (WaitDecision state locks lane on DECISION_REQUIRED until continuation Task arrives)",
+    "R-04": "PASS (Preserves exact raw Task JSON & SHA-256 payload while using typed outer envelopes)",
+    "R-05": "PASS (CLI status/doctor/pause/resume/stop and Unix socket IPC provided; Operator TUI dashboard reserved)",
+    "R-06": "BLOCKED (ChatGPT Sites Plugin usage and authentication boundaries pending human publication)"
+  },
+  "human_intervention_counts": {
+    "regular_turn_relays": 0,
+    "copy_paste_relays": 0,
+    "task_launches": 0,
+    "approval_requests_buffered": 0,
+    "manual_reconcile_calls": 0
+  },
+  "build_test_evidence": {
+    "cargo_check_exit": 0,
+    "cargo_clippy_exit": 0,
+    "cargo_test_exit": 0,
+    "total_tests": 21,
+    "passed_tests": 21,
+    "failed_tests": 0,
+    "release_build_exit": 0,
+    "binary_size_bytes": 662528,
+    "binary_size_str": "647 KiB"
+  },
+  "remaining_blockers": [
+    "R-01/R-06: Human user must execute the 5-minute setup in SITE_SETUP.md within ChatGPT to publish the COSM-Relay-Bridge site as a plugin."
+  ],
+  "next_required_human_action": "Follow SITE_SETUP.md: Invoke `@Sites` in ChatGPT, paste the tool definitions, publish the Site as a personal plugin, and enter the local Relay gateway URL.",
+  "git_status": "Clean (committed and pushed)"
+}
