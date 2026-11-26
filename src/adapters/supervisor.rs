@@ -22,6 +22,7 @@ pub struct SubmitTaskRequest {
     pub lane_id: String,
     pub task_id: String,
     pub payload_json: String,
+    pub in_reply_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +49,17 @@ pub struct AckReportRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AckReportResponse {
     pub acked: bool,
+    pub new_phase: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinishRequest {
+    pub lane_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinishResponse {
+    pub finished: bool,
     pub new_phase: String,
 }
 
@@ -109,19 +121,36 @@ impl SupervisorAdapter {
             .clone()
             .ok_or_else(|| "Run not started on lane".to_string())?;
 
-        let msg_id = format!("msg-sub-{}", uuid_placeholder());
+        // Deterministic stable message_id based on task_id and epoch to support idempotent re-submission
+        let msg_id = format!("msg-{}-epoch-{}", req.task_id, state.binding_epoch);
+        let in_reply_to = req
+            .in_reply_to
+            .as_deref()
+            .and_then(|s| MessageId::new(s).ok());
+
         let env = Envelope::new(
             self.allowed_lane_id.clone(),
             state.binding_epoch,
-            run_id,
+            run_id.clone(),
             MessageId::new(&msg_id).map_err(|e| format!("{:?}", e))?,
             TaskId::new(&req.task_id).map_err(|e| format!("{:?}", e))?,
-            None,
+            in_reply_to,
             crate::core::envelope::MessageKind::Task,
             req.payload_json.as_str(),
         );
 
-        match rt.handle_event(crate::core::reducer::Event::TaskReceived(env)) {
+        let event = if state.phase == crate::core::state::Phase::WaitDecision {
+            crate::core::reducer::Event::DecisionResponseAccepted {
+                lane_id: self.allowed_lane_id.clone(),
+                binding_epoch: state.binding_epoch,
+                run_id,
+                continuation_task: env,
+            }
+        } else {
+            crate::core::reducer::Event::TaskReceived(env)
+        };
+
+        match rt.handle_event(event) {
             Ok(_) => Ok(SubmitTaskResponse {
                 accepted: true,
                 message_id: msg_id,
@@ -196,12 +225,22 @@ impl SupervisorAdapter {
             new_phase: format!("{:?}", new_state.phase),
         })
     }
-}
 
-fn uuid_placeholder() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(1)
+    /// Graceful finish/stop run
+    pub fn finish(&self, req: FinishRequest) -> Result<FinishResponse, String> {
+        if req.lane_id != self.allowed_lane_id.as_str() {
+            return Err(format!("Unauthorized lane ID: {}", req.lane_id));
+        }
+        let mut rt = self.runtime.lock().map_err(|e| e.to_string())?;
+        let (new_state, _) = rt
+            .handle_event(crate::core::reducer::Event::StopRequested {
+                lane_id: self.allowed_lane_id.clone(),
+            })
+            .map_err(|e| format!("{:?}", e))?;
+
+        Ok(FinishResponse {
+            finished: true,
+            new_phase: format!("{:?}", new_state.phase),
+        })
+    }
 }

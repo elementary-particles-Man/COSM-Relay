@@ -161,6 +161,10 @@ impl SupervisorMcpServer {
                             .get("payload_json")
                             .and_then(|v| v.as_str())
                             .unwrap_or("");
+                        let in_reply_to = args
+                            .get("in_reply_to")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
 
                         match self
                             .adapter
@@ -168,6 +172,7 @@ impl SupervisorMcpServer {
                                 lane_id: lane_id.to_string(),
                                 task_id: task_id.to_string(),
                                 payload_json: payload_json.to_string(),
+                                in_reply_to,
                             }) {
                             Ok(res) => McpJsonRpcResponse {
                                 jsonrpc: "2.0".to_string(),

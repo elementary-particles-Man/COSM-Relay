@@ -80,7 +80,7 @@ fn test_live_codex_app_server_turn_execution_on_test_thread() {
 
     // 3. Execute dispatch to worker using runtime helper
     let report_text = runtime
-        .execute_dispatch_to_worker(&lane_id, &mut client, thread_id)
+        .execute_dispatch_to_worker(&lane_id, &mut client)
         .unwrap();
 
     println!("Report text from live Codex: {}", report_text);

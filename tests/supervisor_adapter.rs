@@ -34,6 +34,7 @@ fn test_supervisor_adapter_contract_and_security() {
         lane_id: "other-lane".to_string(),
         task_id: "t1".to_string(),
         payload_json: r#"{"hello":"world"}"#.to_string(),
+        in_reply_to: None,
     });
     assert!(unauth_submit.is_err());
 
@@ -42,6 +43,7 @@ fn test_supervisor_adapter_contract_and_security() {
         lane_id: "lane-auth-1".to_string(),
         task_id: "t1".to_string(),
         payload_json: "not a valid json".to_string(),
+        in_reply_to: None,
     });
     assert!(bad_json_submit.is_err());
 
@@ -69,6 +71,7 @@ fn test_supervisor_adapter_contract_and_security() {
             lane_id: "lane-auth-1".to_string(),
             task_id: "task-sup-01".to_string(),
             payload_json: r#"{"cmd":"check"}"#.to_string(),
+            in_reply_to: None,
         })
         .unwrap();
     assert!(submit_res.accepted);

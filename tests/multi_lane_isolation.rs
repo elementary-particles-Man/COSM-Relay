@@ -12,11 +12,16 @@ fn test_multi_lane_independent_operation_and_isolation() {
     let lane2 = LaneId::new("lane-beta").unwrap();
     let epoch = 1;
 
+    let alpha_dir = temp_dir.join("alpha");
+    let beta_dir = temp_dir.join("beta");
+    fs::create_dir_all(&alpha_dir).unwrap();
+    fs::create_dir_all(&beta_dir).unwrap();
+
     let mut runtime = RelayRuntime::new(&temp_dir);
     runtime
         .register_lane(LaneConfig {
             id: lane1.clone(),
-            repo_root: temp_dir.join("alpha"),
+            repo_root: alpha_dir,
             binding_epoch: epoch,
             worker_thread_id: None,
         })
@@ -24,7 +29,7 @@ fn test_multi_lane_independent_operation_and_isolation() {
     runtime
         .register_lane(LaneConfig {
             id: lane2.clone(),
-            repo_root: temp_dir.join("beta"),
+            repo_root: beta_dir,
             binding_epoch: epoch,
             worker_thread_id: None,
         })
