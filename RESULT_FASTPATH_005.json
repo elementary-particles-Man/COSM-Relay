@@ -1,0 +1,75 @@
+{
+  "work_id": "COSM-RELAY-FASTPATH-005",
+  "predecessor": "COSM-RELAY-FASTPATH-004",
+  "completion_timestamp_utc": "2026-11-26T16:46:10Z",
+  "status": "SUCCESS",
+  "canonical_repository": "https://github.com/elementary-particles-Man/COSM-Relay",
+  "local_path": "/mnt/thpdoc/Develop/TUFF-Relay",
+  "git": {
+    "branch": "main",
+    "predecessor_head": "16fa0fa31b807875c43bb9ffc6bf73678f3c0ff9"
+  },
+  "release_binary": {
+    "path": "target/release/tuff-relay",
+    "sha256": "ecb9efef074ce13dabbe492ecdcc0b8c74c5eda1b9efef98b43218952859446e",
+    "build_profile": "release"
+  },
+  "normative_specifications_preserved": [
+    "TUFF-Relay_基本設計書_Rev0.1-Draft.md (TR-BD-001)",
+    "TUFF-Relay_詳細設計書_Rev0.1-Draft.md (TR-DD-001)"
+  ],
+  "normative_diff_count": 0,
+  "e2_transport": {
+    "http_gateway": {
+      "listen_address": "127.0.0.1:18899",
+      "auth_mechanism": "HTTP Bearer Token",
+      "max_body_size_bytes": 10485760,
+      "connection_timeout_seconds": 30,
+      "strict_utf8": true,
+      "supported_endpoints": ["/status", "/submit", "/report", "/ack", "/finish"]
+    },
+    "ipc_socket": {
+      "permissions": "0600",
+      "parent_dir_permissions": "0700",
+      "active_liveness_check": true,
+      "operations": ["Status", "Pause", "Resume", "Stop", "Interrupt", "ExportRaw"]
+    }
+  },
+  "e3_release_process_acceptance": {
+    "verified": true,
+    "daemon_pid": 978118,
+    "rounds_executed": 3,
+    "codex_thread_id": "01a20de6-d7d3-71e2-af86-fff5791dd860",
+    "rounds": [
+      {
+        "round": 1,
+        "task_id": "task-e3-round-1",
+        "turn_report_id": "rep-01a218bf-ef15-7362-9f47-e0d9b97f5e14",
+        "sha256": "bef4aeef285b5d31747a40df5c78250b80de0fd17d707052f424b37cb09643b1",
+        "duration_sec": 5.03
+      },
+      {
+        "round": 2,
+        "task_id": "task-e3-round-2",
+        "turn_report_id": "rep-01a218c0-00fb-7120-ac4c-5156f7d91b2f",
+        "sha256": "ade6ccd2f92f0b65be4506db670471c0a889e7e7d24bec1e01362c9cf25e9e71",
+        "duration_sec": 1.381
+      },
+      {
+        "round": 3,
+        "task_id": "task-e3-round-3",
+        "turn_report_id": "rep-01a218c0-0683-7063-98e4-c854b6f22740",
+        "sha256": "81b79aaf2071822d309cda511657afc1a7c28ff8e8d2ee15d486d567a5771737",
+        "duration_sec": 1.705
+      }
+    ],
+    "graceful_finish_exit_code": 0
+  },
+  "e4_chatgpt_site_connection": {
+    "site_setup_doc": "SITE_SETUP.md",
+    "site_prompt": "SITE_PROMPT.txt",
+    "mcp_tools_exposed": ["status", "submit", "get_report", "ack", "finish"],
+    "plan_tier_compatibility": ["ChatGPT Plus", "ChatGPT Pro", "ChatGPT Business", "ChatGPT Enterprise"],
+    "zero_cost_add_on": true
+  }
+}

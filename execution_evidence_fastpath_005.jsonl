@@ -1,0 +1,14 @@
+{"timestamp":"2026-11-26T16:44:50Z","phase":"BUILD_RELEASE","binary":"target/release/tuff-relay","sha256":"ecb9efef074ce13dabbe492ecdcc0b8c74c5eda1b9efef98b43218952859446e","status":"SUCCESS"}
+{"timestamp":"2026-11-26T16:45:16Z","phase":"SPAWN_DAEMON","cmd":"target/release/tuff-relay serve --lane e3-verification-lane --bind 127.0.0.1:18899","pid":978118,"status":"RUNNING"}
+{"timestamp":"2026-11-26T16:45:17Z","phase":"SECURITY_TEST_401","url":"http://127.0.0.1:18899/status?lane_id=e3-verification-lane","expected_code":401,"actual_code":401,"status":"PASS"}
+{"timestamp":"2026-11-26T16:45:17Z","phase":"IPC_VERIFICATION","socket":"/tmp/cosm-e3-verification-state/ipc/e3-verification-lane.sock","socket_mode":"0o600","parent_mode":"0o700","status":"PASS"}
+{"timestamp":"2026-11-26T16:45:18Z","phase":"SUBMIT_ROUND_1","task_id":"task-e3-round-1","message_id":"msg-task-e3-round-1-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T16:45:23Z","phase":"REPORT_ROUND_1","task_id":"task-e3-round-1","report_id":"rep-01a218bf-ef15-7362-9f47-e0d9b97f5e14","duration_seconds":5.03,"report_sha256":"bef4aeef285b5d31747a40df5c78250b80de0fd17d707052f424b37cb09643b1","is_decision_required":false}
+{"timestamp":"2026-11-26T16:45:23Z","phase":"ACK_ROUND_1","report_id":"rep-01a218bf-ef15-7362-9f47-e0d9b97f5e14","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T16:45:24Z","phase":"SUBMIT_ROUND_2","task_id":"task-e3-round-2","message_id":"msg-task-e3-round-2-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T16:45:25Z","phase":"REPORT_ROUND_2","task_id":"task-e3-round-2","report_id":"rep-01a218c0-00fb-7120-ac4c-5156f7d91b2f","duration_seconds":1.381,"report_sha256":"ade6ccd2f92f0b65be4506db670471c0a889e7e7d24bec1e01362c9cf25e9e71","is_decision_required":false}
+{"timestamp":"2026-11-26T16:45:25Z","phase":"ACK_ROUND_2","report_id":"rep-01a218c0-00fb-7120-ac4c-5156f7d91b2f","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T16:45:26Z","phase":"SUBMIT_ROUND_3","task_id":"task-e3-round-3","message_id":"msg-task-e3-round-3-epoch-1","accepted":true}
+{"timestamp":"2026-11-26T16:45:27Z","phase":"REPORT_ROUND_3","task_id":"task-e3-round-3","report_id":"rep-01a218c0-0683-7063-98e4-c854b6f22740","duration_seconds":1.705,"report_sha256":"81b79aaf2071822d309cda511657afc1a7c28ff8e8d2ee15d486d567a5771737","is_decision_required":false}
+{"timestamp":"2026-11-26T16:45:27Z","phase":"ACK_ROUND_3","report_id":"rep-01a218c0-0683-7063-98e4-c854b6f22740","new_phase":"WaitTask","status":"PASS"}
+{"timestamp":"2026-11-26T16:45:28Z","phase":"FINISH_RUN","endpoint":"/finish","finished":true,"new_phase":"Stopped","daemon_exit_code":0,"status":"PASS"}

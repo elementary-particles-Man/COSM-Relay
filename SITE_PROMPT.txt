@@ -1,0 +1,32 @@
+@Sites Create a new site named "COSM-Relay-Bridge" with the following 5 Model Context Protocol (MCP) tools:
+
+1. status:
+   - description: "Query current phase, epoch, active task, pending report, and pause status for a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier (e.g. "tuff-relay").
+
+2. submit:
+   - description: "Submit a new task JSON payload to a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+     - task_id (string, required): Unique task identifier.
+     - payload_json (string, required): Raw JSON string representing the task specification.
+     - in_reply_to (string, optional): Message ID of previous report when answering a decision-required report.
+
+3. get_report:
+   - description: "Retrieve the pending worker report for a registered lane if ready."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+
+4. ack:
+   - description: "Acknowledge receipt of a completed or decision-required report to transition the lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+     - report_id (string, required): Message ID of the report being acknowledged.
+
+5. finish:
+   - description: "Gracefully request completion and stop of the run on a registered lane."
+   - parameters:
+     - lane_id (string, required): Registered lane identifier.
+
+Configure the site to route these tool calls to my authenticated COSM-Relay gateway URL with Bearer token authentication.

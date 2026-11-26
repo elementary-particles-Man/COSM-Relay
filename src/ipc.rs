@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,16 +36,34 @@ impl IpcServer {
     where
         H: Fn(IpcRequest) -> IpcResponse + Send + Sync + 'static,
     {
-        if socket_path.exists() {
-            let _ = fs::remove_file(&socket_path);
-        }
-
         if let Some(parent) = socket_path.parent() {
             fs::create_dir_all(parent)?;
+            // Enforce 0700 permissions on IPC directory
+            let perms = fs::Permissions::from_mode(0o700);
+            let _ = fs::set_permissions(parent, perms);
+        }
+
+        // Safety check: if socket exists, test if a live process is listening
+        if socket_path.exists() {
+            if UnixStream::connect(&socket_path).is_ok() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    format!(
+                        "IPC socket {:?} is actively in use by another process",
+                        socket_path
+                    ),
+                ));
+            }
+            // Stale socket, remove it
+            let _ = fs::remove_file(&socket_path);
         }
 
         let listener = UnixListener::bind(&socket_path)?;
         listener.set_nonblocking(true)?;
+
+        // Enforce 0600 on the socket file
+        let socket_perms = fs::Permissions::from_mode(0o600);
+        let _ = fs::set_permissions(&socket_path, socket_perms);
 
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();

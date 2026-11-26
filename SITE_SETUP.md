@@ -26,7 +26,7 @@ In your ChatGPT conversation interface (or a new session):
 ```
 
 ### Step 2: Configure MCP Tools on the Site
-Provide the following instruction to ChatGPT to bind the official TR-DD-001 §6.3 minimum supervisor tools:
+Provide the following instruction to ChatGPT to bind the official TR-DD-001 §6.3 minimum supervisor tools (5 operations: status, submit, get_report, ack, finish):
 ```text
 Add the following Model Context Protocol (MCP) tool specifications to this site:
 
@@ -53,6 +53,11 @@ Add the following Model Context Protocol (MCP) tool specifications to this site:
    Parameters:
      - lane_id (string, required): Registered lane identifier.
      - report_id (string, required): Message ID of the report being acknowledged.
+
+5. Tool Name: finish
+   Description: "Gracefully stop and complete the current run on a registered lane."
+   Parameters:
+     - lane_id (string, required): Registered lane identifier.
 ```
 
 ### Step 3: Test with Harmless Sample Data
@@ -74,5 +79,5 @@ In the private interactive preview of the Site, test each tool using mock respon
 
 ## 4. Operational & Cost Assessment
 - **Cost**: Creating and using Sites is included in existing ChatGPT Plus usage limits; no additional OpenAI API billing is incurred.
-- **Confirmation Prompts**: By default, ChatGPT presents a confirmation dialog on the first write-action call (`submit`, `ack`). Once confirmed by the user, calls in that active conversation proceed automatically.
+- **Confirmation Prompts**: By default, ChatGPT presents a confirmation dialog on the first write-action call (`submit`, `ack`, `finish`). Once confirmed by the user, calls in that active conversation proceed automatically.
 - **Fallback**: If Plugin invocation fails or times out, the local Relay state remains safely in its current Phase without state loss or auto-dispatch clobbering.

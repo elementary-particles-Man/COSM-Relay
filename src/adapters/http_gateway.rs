@@ -1,9 +1,15 @@
-use crate::adapters::supervisor::{AckReportRequest, SubmitTaskRequest, SupervisorAdapter};
+use crate::adapters::supervisor::{
+    AckReportRequest, FinishRequest, SubmitTaskRequest, SupervisorAdapter,
+};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+pub const MAX_REQUEST_BODY_SIZE: usize = 10 * 1024 * 1024; // 10 MiB limit
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct HttpGateway {
     addr: String,
@@ -35,7 +41,7 @@ impl HttpGateway {
                         });
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(std::time::Duration::from_millis(50));
+                        thread::sleep(Duration::from_millis(50));
                     }
                     Err(_) => {
                         break;
@@ -70,10 +76,14 @@ impl Drop for HttpGateway {
 }
 
 fn handle_http_connection(
-    mut stream: TcpStream,
+    stream: TcpStream,
     adapter: Arc<SupervisorAdapter>,
     expected_token: Option<String>,
 ) -> std::io::Result<()> {
+    // Enforce 30s connection timeouts
+    let _ = stream.set_read_timeout(Some(HTTP_TIMEOUT));
+    let _ = stream.set_write_timeout(Some(HTTP_TIMEOUT));
+
     let mut reader = BufReader::new(&stream);
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
@@ -85,7 +95,7 @@ fn handle_http_connection(
     let path = parts[1];
 
     let mut headers = std::collections::HashMap::new();
-    let mut content_length = 0;
+    let mut content_length: usize = 0;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line)?;
@@ -97,19 +107,33 @@ fn handle_http_connection(
             let k_lower = k.trim().to_lowercase();
             let v_trim = v.trim().to_string();
             if k_lower == "content-length" {
-                content_length = v_trim.parse::<usize>().unwrap_or(0);
+                if let Ok(cl) = v_trim.parse::<usize>() {
+                    content_length = cl;
+                }
             }
             headers.insert(k_lower, v_trim);
         }
     }
 
-    // Verify Auth if configured
+    let mut writer = &stream;
+
+    // Body limit enforcement
+    if content_length > MAX_REQUEST_BODY_SIZE {
+        let resp = "HTTP/1.1 413 Payload Too Large\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Payload too large\"}";
+        let _ = writer.write_all(resp.as_bytes());
+        return Ok(());
+    }
+
+    // Verify Bearer Token Auth if configured
     if let Some(ref token) = expected_token {
-        let auth_hdr = headers.get("authorization").cloned().unwrap_or_default();
+        let auth_hdr = headers
+            .get("authorization")
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let expected_hdr = format!("Bearer {}", token);
         if auth_hdr != expected_hdr {
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nUnauthorized";
-            stream.write_all(resp.as_bytes())?;
+            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Unauthorized\"}";
+            let _ = writer.write_all(resp.as_bytes());
             return Ok(());
         }
     }
@@ -118,25 +142,20 @@ fn handle_http_connection(
     if content_length > 0 {
         reader.read_exact(&mut body)?;
     }
-    let body_str = String::from_utf8_lossy(&body);
+
+    // Strict UTF-8 validation
+    let body_str = match std::str::from_utf8(&body) {
+        Ok(s) => s,
+        Err(_) => {
+            let resp = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"Invalid UTF-8 body\"}";
+            let _ = writer.write_all(resp.as_bytes());
+            return Ok(());
+        }
+    };
 
     let (status_code, body_resp) = match (method, path) {
         ("GET", p) if p.starts_with("/status") => {
-            let lane_id = p
-                .split('?')
-                .nth(1)
-                .and_then(|q| {
-                    q.split('&').find_map(|pair| {
-                        let mut s = pair.split('=');
-                        if s.next() == Some("lane_id") {
-                            s.next()
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or("tuff-relay");
-
+            let lane_id = parse_query_param(p, "lane_id").unwrap_or("tuff-relay");
             match adapter.status(lane_id) {
                 Ok(st) => ("200 OK", serde_json::to_string(&st).unwrap_or_default()),
                 Err(e) => (
@@ -145,7 +164,7 @@ fn handle_http_connection(
                 ),
             }
         }
-        ("POST", "/submit") => match serde_json::from_str::<SubmitTaskRequest>(&body_str) {
+        ("POST", "/submit") => match serde_json::from_str::<SubmitTaskRequest>(body_str) {
             Ok(req) => match adapter.submit(req) {
                 Ok(resp) => ("200 OK", serde_json::to_string(&resp).unwrap_or_default()),
                 Err(e) => (
@@ -159,21 +178,7 @@ fn handle_http_connection(
             ),
         },
         ("GET", p) if p.starts_with("/report") => {
-            let lane_id = p
-                .split('?')
-                .nth(1)
-                .and_then(|q| {
-                    q.split('&').find_map(|pair| {
-                        let mut s = pair.split('=');
-                        if s.next() == Some("lane_id") {
-                            s.next()
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or("tuff-relay");
-
+            let lane_id = parse_query_param(p, "lane_id").unwrap_or("tuff-relay");
             match adapter.get_report(lane_id) {
                 Ok(rep) => ("200 OK", serde_json::to_string(&rep).unwrap_or_default()),
                 Err(e) => (
@@ -182,8 +187,21 @@ fn handle_http_connection(
                 ),
             }
         }
-        ("POST", "/ack") => match serde_json::from_str::<AckReportRequest>(&body_str) {
+        ("POST", "/ack") => match serde_json::from_str::<AckReportRequest>(body_str) {
             Ok(req) => match adapter.ack(req) {
+                Ok(resp) => ("200 OK", serde_json::to_string(&resp).unwrap_or_default()),
+                Err(e) => (
+                    "400 Bad Request",
+                    serde_json::json!({ "error": e }).to_string(),
+                ),
+            },
+            Err(e) => (
+                "400 Bad Request",
+                serde_json::json!({ "error": e.to_string() }).to_string(),
+            ),
+        },
+        ("POST", "/finish") => match serde_json::from_str::<FinishRequest>(body_str) {
+            Ok(req) => match adapter.finish(req) {
                 Ok(resp) => ("200 OK", serde_json::to_string(&resp).unwrap_or_default()),
                 Err(e) => (
                     "400 Bad Request",
@@ -207,7 +225,20 @@ fn handle_http_connection(
         body_resp.len(),
         body_resp
     );
-    stream.write_all(full_resp.as_bytes())?;
-    stream.flush()?;
+    let _ = writer.write_all(full_resp.as_bytes());
+    let _ = writer.flush();
     Ok(())
+}
+
+fn parse_query_param<'a>(path: &'a str, key: &str) -> Option<&'a str> {
+    path.split('?').nth(1).and_then(|q| {
+        q.split('&').find_map(|pair| {
+            let mut s = pair.split('=');
+            if s.next() == Some(key) {
+                s.next()
+            } else {
+                None
+            }
+        })
+    })
 }

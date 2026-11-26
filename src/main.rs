@@ -3,9 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 use std::sync::{Arc, Mutex};
+use tuff_relay::adapters::http_gateway::HttpGateway;
 use tuff_relay::adapters::mcp_server::SupervisorMcpServer;
 use tuff_relay::adapters::supervisor::SupervisorAdapter;
 use tuff_relay::core::*;
+use tuff_relay::ipc::{IpcRequest, IpcResponse, IpcServer};
+use tuff_relay::runtime::LaneDriver;
 use tuff_relay::{LaneConfig, RelayRuntime};
 
 fn print_usage() {
@@ -13,16 +16,17 @@ fn print_usage() {
     println!("Usage:");
     println!("  tuff-relay doctor");
     println!("  tuff-relay status [--json]");
+    println!("  tuff-relay serve --lane <lane-id> [--bind <ip:port>] [--token <secret>] [--stdio-worker]");
     println!("  tuff-relay mcp-server --lane <lane-id>");
     println!("  tuff-relay pause --lane <lane-id>");
     println!("  tuff-relay resume --lane <lane-id>");
     println!("  tuff-relay stop --lane <lane-id>");
 }
 
-fn parse_lane_arg(args: &[String]) -> Option<LaneId> {
+fn parse_arg(args: &[String], flag: &str) -> Option<String> {
     for i in 0..args.len() {
-        if args[i] == "--lane" && i + 1 < args.len() {
-            return LaneId::new(&args[i + 1]).ok();
+        if args[i] == flag && i + 1 < args.len() {
+            return Some(args[i + 1].clone());
         }
     }
     None
@@ -49,7 +53,6 @@ fn main() {
         });
 
     if let Err(e) = fs::create_dir_all(&state_dir) {
-        // In sandboxed environments where home/state_dir is read-only, fallback to temp_dir
         let fallback = std::env::temp_dir().join("cosm-relay");
         if fs::create_dir_all(&fallback).is_err() {
             eprintln!("Failed to create state directory {:?}: {}", state_dir, e);
@@ -57,24 +60,16 @@ fn main() {
         }
     }
 
-    let mut runtime = RelayRuntime::new(&state_dir);
+    let lane_id_str = parse_arg(&args, "--lane").unwrap_or_else(|| "tuff-relay".to_string());
+    let lane_id = match LaneId::new(&lane_id_str) {
+        Ok(lid) => lid,
+        Err(e) => {
+            eprintln!("Invalid lane ID {}: {:?}", lane_id_str, e);
+            process::exit(1);
+        }
+    };
 
-    // Register active lane if provided or default
-    let lane_id = parse_lane_arg(&args).unwrap_or_else(|| LaneId::new("tuff-relay").unwrap());
     let repo_root = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-    if let Err(e) = runtime.register_lane(LaneConfig {
-        id: lane_id.clone(),
-        repo_root: repo_root.clone(),
-        binding_epoch: 1,
-        worker_thread_id: None,
-    }) {
-        eprintln!(
-            "Warning: could not register lane {}: {}",
-            lane_id.as_str(),
-            e
-        );
-    }
 
     match args[1].as_str() {
         "doctor" => {
@@ -92,6 +87,14 @@ fn main() {
             }
         }
         "status" => {
+            let mut runtime = RelayRuntime::new(&state_dir);
+            let _ = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: None,
+            });
+
             let is_json = args.iter().any(|a| a == "--json");
             if is_json {
                 let states: Vec<_> = runtime.all_states().values().collect();
@@ -117,7 +120,249 @@ fn main() {
                 }
             }
         }
+        "serve" => {
+            let bind_addr =
+                parse_arg(&args, "--bind").unwrap_or_else(|| "127.0.0.1:18888".to_string());
+            let auth_token =
+                parse_arg(&args, "--token").or_else(|| env::var("RELAY_AUTH_TOKEN").ok());
+
+            let thread_id = env::var("CODEX_TEST_THREAD_ID")
+                .ok()
+                .or_else(|| parse_arg(&args, "--thread"));
+
+            let mut runtime = RelayRuntime::new(&state_dir);
+            if let Err(e) = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: thread_id,
+            }) {
+                eprintln!("Failed to register lane: {}", e);
+                process::exit(1);
+            }
+
+            // Start the initial run on the lane so it enters WaitTask
+            let initial_run_id = RunId::new("run-001").unwrap();
+            let _ = runtime.handle_event(Event::StartRun {
+                lane_id: lane_id.clone(),
+                binding_epoch: 1,
+                run_id: initial_run_id,
+            });
+
+            let runtime_arc = Arc::new(Mutex::new(runtime));
+            let adapter = Arc::new(SupervisorAdapter::new(runtime_arc.clone(), lane_id.clone()));
+
+            // Start HTTP Gateway
+            let http_gateway =
+                match HttpGateway::start(&bind_addr, adapter.clone(), auth_token.clone()) {
+                    Ok(gw) => {
+                        println!("HTTP Gateway listening on {}", gw.local_addr());
+                        gw
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to start HTTP Gateway: {}", e);
+                        process::exit(1);
+                    }
+                };
+
+            // Start IPC Server
+            let ipc_socket = state_dir
+                .join("ipc")
+                .join(format!("{}.sock", lane_id.as_str()));
+            let rt_for_ipc = runtime_arc.clone();
+            let lid_for_ipc = lane_id.clone();
+            let _ipc_server = match IpcServer::start(ipc_socket.clone(), move |req| {
+                let mut rt = match rt_for_ipc.lock() {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        return IpcResponse {
+                            success: false,
+                            payload: serde_json::Value::Null,
+                            error: Some(e.to_string()),
+                        }
+                    }
+                };
+                match req {
+                    IpcRequest::Status { .. } => {
+                        if let Some(st) = rt.get_state(&lid_for_ipc) {
+                            IpcResponse {
+                                success: true,
+                                payload: serde_json::to_value(st).unwrap_or_default(),
+                                error: None,
+                            }
+                        } else {
+                            IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some("Lane not found".to_string()),
+                            }
+                        }
+                    }
+                    IpcRequest::Pause { .. } => {
+                        match rt.handle_event(Event::PauseRequested {
+                            lane_id: lid_for_ipc.clone(),
+                        }) {
+                            Ok((st, _)) => IpcResponse {
+                                success: true,
+                                payload: serde_json::to_value(st).unwrap_or_default(),
+                                error: None,
+                            },
+                            Err(e) => IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some(format!("{:?}", e)),
+                            },
+                        }
+                    }
+                    IpcRequest::Resume { .. } => {
+                        match rt.handle_event(Event::ResumeRequested {
+                            lane_id: lid_for_ipc.clone(),
+                        }) {
+                            Ok((st, _)) => IpcResponse {
+                                success: true,
+                                payload: serde_json::to_value(st).unwrap_or_default(),
+                                error: None,
+                            },
+                            Err(e) => IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some(format!("{:?}", e)),
+                            },
+                        }
+                    }
+                    IpcRequest::Stop { .. } => {
+                        match rt.handle_event(Event::StopRequested {
+                            lane_id: lid_for_ipc.clone(),
+                        }) {
+                            Ok((st, _)) => IpcResponse {
+                                success: true,
+                                payload: serde_json::to_value(st).unwrap_or_default(),
+                                error: None,
+                            },
+                            Err(e) => IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some(format!("{:?}", e)),
+                            },
+                        }
+                    }
+                    IpcRequest::Interrupt { .. } => {
+                        let epoch = rt
+                            .get_state(&lid_for_ipc)
+                            .map(|s| s.binding_epoch)
+                            .unwrap_or(1);
+                        let run_id = rt.get_state(&lid_for_ipc).and_then(|s| s.run_id.clone());
+                        let task_id = rt
+                            .get_state(&lid_for_ipc)
+                            .and_then(|s| s.active_task.clone());
+                        let turn_id = rt
+                            .get_state(&lid_for_ipc)
+                            .and_then(|s| s.worker_turn.clone());
+
+                        if let (Some(rid), Some(_tid), Some(turn)) = (run_id, task_id, turn_id) {
+                            match rt.handle_event(Event::WorkerTurnFailed {
+                                lane_id: lid_for_ipc.clone(),
+                                binding_epoch: epoch,
+                                run_id: rid.clone(),
+                                turn_id: turn,
+                                failure_report_envelope: Envelope::new(
+                                    lid_for_ipc.clone(),
+                                    epoch,
+                                    rid,
+                                    MessageId::new("msg-interrupted").unwrap(),
+                                    TaskId::new("task-interrupted").unwrap(),
+                                    None,
+                                    MessageKind::Report,
+                                    "{\"status\":\"interrupted\"}",
+                                ),
+                            }) {
+                                Ok((st, _)) => IpcResponse {
+                                    success: true,
+                                    payload: serde_json::to_value(st).unwrap_or_default(),
+                                    error: None,
+                                },
+                                Err(e) => IpcResponse {
+                                    success: false,
+                                    payload: serde_json::Value::Null,
+                                    error: Some(format!("{:?}", e)),
+                                },
+                            }
+                        } else {
+                            IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some("No active run or turn to interrupt".to_string()),
+                            }
+                        }
+                    }
+                    IpcRequest::ExportRaw { .. } => {
+                        if let Some(st) = rt.get_state(&lid_for_ipc) {
+                            let report_raw = st
+                                .pending_report
+                                .as_ref()
+                                .map(|r| r.payload_utf8.to_string());
+                            IpcResponse {
+                                success: true,
+                                payload: serde_json::json!({
+                                    "lane_id": lid_for_ipc.as_str(),
+                                    "raw_report": report_raw,
+                                }),
+                                error: None,
+                            }
+                        } else {
+                            IpcResponse {
+                                success: false,
+                                payload: serde_json::Value::Null,
+                                error: Some("Lane not found".to_string()),
+                            }
+                        }
+                    }
+                }
+            }) {
+                Ok(srv) => {
+                    println!("IPC Server listening on {:?}", ipc_socket);
+                    srv
+                }
+                Err(e) => {
+                    eprintln!("Failed to start IPC Server: {}", e);
+                    process::exit(1);
+                }
+            };
+
+            // Start LaneDriver background thread
+            let codex_bin =
+                env::var("CODEX_BIN").unwrap_or_else(|_| "/home/flux/.local/bin/codex".to_string());
+            let _driver = LaneDriver::spawn(runtime_arc.clone(), lane_id.clone(), codex_bin);
+
+            println!(
+                "COSM-Relay daemon running for lane {} (PID: {})",
+                lane_id.as_str(),
+                process::id()
+            );
+            println!("READY");
+
+            // Loop until shutdown signal or state becomes Stopped
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if let Ok(rt) = runtime_arc.lock() {
+                    if let Some(st) = rt.get_state(&lane_id) {
+                        if st.phase == Phase::Stopped {
+                            println!("Lane reached Stopped phase. Shutting down daemon.");
+                            break;
+                        }
+                    }
+                }
+            }
+            drop(http_gateway);
+        }
         "mcp-server" => {
+            let mut runtime = RelayRuntime::new(&state_dir);
+            let _ = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: None,
+            });
             let runtime_arc = Arc::new(Mutex::new(runtime));
             let adapter = Arc::new(SupervisorAdapter::new(runtime_arc, lane_id));
             let server = SupervisorMcpServer::new(adapter);
@@ -129,6 +374,13 @@ fn main() {
             }
         }
         "pause" => {
+            let mut runtime = RelayRuntime::new(&state_dir);
+            let _ = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: None,
+            });
             match runtime.handle_event(Event::PauseRequested {
                 lane_id: lane_id.clone(),
             }) {
@@ -140,6 +392,13 @@ fn main() {
             }
         }
         "resume" => {
+            let mut runtime = RelayRuntime::new(&state_dir);
+            let _ = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: None,
+            });
             match runtime.handle_event(Event::ResumeRequested {
                 lane_id: lane_id.clone(),
             }) {
@@ -151,6 +410,13 @@ fn main() {
             }
         }
         "stop" => {
+            let mut runtime = RelayRuntime::new(&state_dir);
+            let _ = runtime.register_lane(LaneConfig {
+                id: lane_id.clone(),
+                repo_root: repo_root.clone(),
+                binding_epoch: 1,
+                worker_thread_id: None,
+            });
             match runtime.handle_event(Event::StopRequested {
                 lane_id: lane_id.clone(),
             }) {
